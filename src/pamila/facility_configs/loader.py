@@ -88,38 +88,39 @@ def get_unitconv(elem_def, in_reprs, out_reprs):
     return unitconv
 
 
-def get_pvid_in_elem(ch_def):
-    pvid_in_elem_d = {}
+def get_pvids_in_elem(ch_def):
+    pvids_in_elem_d = {}
 
     for ext_or_int in ["ext", "int"]:
         if ext_or_int in ch_def["pvs"]:
             pvids = ch_def["pvs"][ext_or_int]
-            if len(pvids) != 1:
-                raise NotImplementedError
-            pvid_in_elem_d[ext_or_int] = pvids[0]
+            match len(pvids):
+                case 0:
+                    raise RuntimeError
+                case _:
+                    pvids_in_elem_d[ext_or_int] = pvids
 
-    return pvid_in_elem_d
+    return pvids_in_elem_d
 
 
 def get_defined_machine_modes(ch_def, elem_name_pvid_to_pvinfo, elem_name):
 
-    pvid_in_elem_d = get_pvid_in_elem(ch_def)
+    pvids_in_elem_d = get_pvids_in_elem(ch_def)
 
     machine_mode_list = []
-    for ext_or_int, pvid_in_elem in pvid_in_elem_d.items():
-        info = elem_name_pvid_to_pvinfo[ext_or_int][(elem_name, pvid_in_elem)]
-        match ext_or_int:
-            case "ext":
-                for mode_name in info["pvunit"].keys():
-                    match mode_name:
-                        case "LIVE":
-                            machine_mode_list.append(MachineMode.LIVE)
-                        case "DT":
-                            machine_mode_list.append(MachineMode.DIGITAL_TWIN)
-                        case _:
-                            raise ValueError
-            case "int":
-                machine_mode_list.append(MachineMode.SIMULATOR)
+
+    if "ext" in pvids_in_elem_d:
+        extpv_name_d_list = [
+            elem_name_pvid_to_pvinfo["ext"][(elem_name, pvid_in_elem)]["pvname"]
+            for pvid_in_elem in pvids_in_elem_d["ext"]
+        ]
+        if all([MachineMode.LIVE.value in _d for _d in extpv_name_d_list]):
+            machine_mode_list.append(MachineMode.LIVE)
+        if all([MachineMode.DIGITAL_TWIN.value in _d for _d in extpv_name_d_list]):
+            machine_mode_list.append(MachineMode.DIGITAL_TWIN)
+
+    if "int" in pvids_in_elem_d:
+        machine_mode_list.append(MachineMode.SIMULATOR)
 
     return machine_mode_list
 
@@ -132,47 +133,51 @@ def get_ext_or_int(machine_mode: MachineMode):
     return ext_or_int
 
 
-def _get_pvinfo(ch_def, elem_name_pvid_to_pvinfo, elem_name, machine_mode):
-
-    pvid_in_elem_d = get_pvid_in_elem(ch_def)
+def _get_pvinfo_list(ch_def, elem_name_pvid_to_pvinfo, elem_name, machine_mode):
 
     ext_or_int = get_ext_or_int(machine_mode)
 
-    pvid_in_elem = pvid_in_elem_d[ext_or_int]
+    pvids_in_elem_d = get_pvids_in_elem(ch_def)
 
-    info = elem_name_pvid_to_pvinfo[ext_or_int][(elem_name, pvid_in_elem)]
+    info_list = [
+        elem_name_pvid_to_pvinfo[ext_or_int][(elem_name, pvid_in_elem)]
+        for pvid_in_elem in pvids_in_elem_d[ext_or_int]
+    ]
 
-    return ext_or_int, info
+    return ext_or_int, info_list
 
 
-def get_pvname(ch_def, elem_name_pvid_to_pvinfo, elem_name, machine_mode):
+def get_pvnames(ch_def, elem_name_pvid_to_pvinfo, elem_name, machine_mode):
 
-    ext_or_int, info = _get_pvinfo(
+    ext_or_int, info_list = _get_pvinfo_list(
         ch_def, elem_name_pvid_to_pvinfo, elem_name, machine_mode
     )
 
     if ext_or_int == "ext":
-        pvname = info["pvname"][machine_mode.value]
+        pvname_list = [info["pvname"][machine_mode.value] for info in info_list]
     else:
-        pvsuffix = info["pvsuffix"]
-        pvprefix = get_sim_pvprefix(machine_mode)
-        pvname = f"{pvprefix}{pvsuffix}"
+        pvname_list = []
+        for info in info_list:
+            pvsuffix = info["pvsuffix"]
+            pvprefix = get_sim_pvprefix(machine_mode)
+            pvname = f"{pvprefix}{pvsuffix}"
+            pvname_list.append(pvname)
 
-    return pvname
+    return pvname_list
 
 
-def get_pvunit(ch_def, elem_name_pvid_to_pvinfo, elem_name, machine_mode):
+def get_pvunits(ch_def, elem_name_pvid_to_pvinfo, elem_name, machine_mode):
 
-    ext_or_int, info = _get_pvinfo(
+    ext_or_int, info_list = _get_pvinfo_list(
         ch_def, elem_name_pvid_to_pvinfo, elem_name, machine_mode
     )
 
     if ext_or_int == "ext":
-        pvunit = info["pvunit"][machine_mode.value]
+        pvunit_list = [info["pvunit"][machine_mode.value] for info in info_list]
     else:
-        pvunit = info["pvunit"]
+        pvunit_list = [info["pvunit"] for info in info_list]
 
-    return pvunit
+    return pvunit_list
 
 
 def _get_standard_RB_components(
@@ -198,13 +203,19 @@ def _get_standard_RB_components(
         case _:
             raise ValueError
 
-    LoLv_pv_unit = get_pvunit(ch_def, elem_name_pvid_to_pvinfo, elem_name, machine_mode)
+    _LoLv_pv_units = get_pvunits(
+        ch_def, elem_name_pvid_to_pvinfo, elem_name, machine_mode
+    )
+    assert len(_LoLv_pv_units) == 1
+    LoLv_pv_unit = _LoLv_pv_units[0]
     # ^ Note that "LoLv_pv_unit == elem_def['repr_units'][in_reprs[0]]" may NOT
     # necessarily hold. But their dimension must be the same.
     out_reprs = ch_def["reprs"]
     mlv_unit = elem_def["repr_units"][out_reprs[0]]
 
-    pvname = get_pvname(ch_def, elem_name_pvid_to_pvinfo, elem_name, machine_mode)
+    _pvnames = get_pvnames(ch_def, elem_name_pvid_to_pvinfo, elem_name, machine_mode)
+    assert len(_pvnames) == 1
+    pvname = _pvnames[0]
 
     components = {
         "RB_LoLv": Cpt(
@@ -307,13 +318,19 @@ def _get_standard_SP_components(
         case _:
             raise ValueError
 
-    LoLv_pv_unit = get_pvunit(ch_def, elem_name_pvid_to_pvinfo, elem_name, machine_mode)
+    _LoLv_pv_units = get_pvunits(
+        ch_def, elem_name_pvid_to_pvinfo, elem_name, machine_mode
+    )
+    assert len(_LoLv_pv_units) == 1
+    LoLv_pv_unit = _LoLv_pv_units[0]
     # ^ Note that "LoLv_pv_unit == elem_def['repr_units'][in_reprs[0]]" may NOT
     # necessarily hold. But their dimension must be the same.
     out_reprs = ch_def["reprs"]
     mlv_unit = elem_def["repr_units"][out_reprs[0]]
 
-    SP_pvname = get_pvname(ch_def, elem_name_pvid_to_pvinfo, elem_name, machine_mode)
+    _SP_pvnames = get_pvnames(ch_def, elem_name_pvid_to_pvinfo, elem_name, machine_mode)
+    assert len(_SP_pvnames) == 1
+    SP_pvname = _SP_pvnames[0]
 
     components = {
         "SP_LoLv": Cpt(
@@ -519,7 +536,13 @@ class MachineConfig:
     def _load_definitions_from_files(self):
         self.sim_pv_defs = json.loads((self.config_folder / "sim_pvs.json").read_text())
 
-        self.pv_defs = json.loads((self.config_folder / "pvs.json").read_text())
+        self.simpv_elem_maps = json.loads(
+            (self.config_folder / "simpv_elem_maps.json").read_text()
+        )
+
+        self.pv_elem_maps = json.loads(
+            (self.config_folder / "pv_elem_maps.json").read_text()
+        )
 
         self.elem_defs = json.loads((self.config_folder / "elements.json").read_text())
 
@@ -536,36 +559,32 @@ class MachineConfig:
             self.mlvt_defs = None
 
         self.elem_name_pvid_to_pvinfo = dict(ext={}, int={})
-        to_check_later = dict(ext=[], int=[])
-        for p_def in self.pv_defs["pv_definitions"]:
-            for ext_or_int, pvname_or_suffix in [
-                ("ext", "pvname"),
-                ("int", "pvsuffix"),
-            ]:
-                pvid_in_elem = p_def[ext_or_int]["pvid_in_elem"]
-                k = (p_def["elem_name"], pvid_in_elem)
-                if pvname_or_suffix in p_def[ext_or_int]:
-                    self.elem_name_pvid_to_pvinfo[ext_or_int][k] = {
-                        pvname_or_suffix: p_def[ext_or_int][pvname_or_suffix],
-                        "pvunit": p_def[ext_or_int]["pvunit"],
-                    }
-                else:
-                    p_def[ext_or_int]["same_as_SP"]
-                    if k not in self.elem_name_pvid_to_pvinfo[ext_or_int]:
-                        to_check_later[ext_or_int].append(k)
 
-        for p_def in self.pv_defs["pv_definitions"]:
-            for ext_or_int, pvname_or_suffix in [
-                ("ext", "pvname"),
-                ("int", "pvsuffix"),
-            ]:
-                pvid_in_elem = p_def[ext_or_int]["pvid_in_elem"]
-                k = (p_def["elem_name"], pvid_in_elem)
-                if k in to_check_later[ext_or_int]:
-                    if k in self.elem_name_pvid_to_pvinfo[ext_or_int]:
-                        to_check_later[ext_or_int].remove(k)
-        assert to_check_later["ext"] == []
-        assert to_check_later["int"] == []
+        pv_elem_maps = self.pv_elem_maps["pv_elem_maps"]
+        elem_name_pvid_to_pvinfo = self.elem_name_pvid_to_pvinfo["ext"]
+
+        for pvname, d in pv_elem_maps.items():
+            for elem_name in d["elem_names"]:
+                k = (elem_name, d["pvid_in_elem"])
+                assert k not in elem_name_pvid_to_pvinfo
+                elem_name_pvid_to_pvinfo[k] = {
+                    "handle": d["handle"],
+                    "pvname": dict(LIVE=pvname, DT=d.get("DT_pvname", None)),
+                    "pvunit": dict(LIVE=d["pvunit"], DT=d.get("DT_pvunit", None)),
+                }
+
+        simpv_elem_maps = self.simpv_elem_maps["simpv_elem_maps"]
+        elem_name_pvid_to_pvinfo = self.elem_name_pvid_to_pvinfo["int"]
+
+        for pvsuffix, d in simpv_elem_maps.items():
+
+            k = (d["elem_name"], d["pvid_in_elem"])
+            assert k not in elem_name_pvid_to_pvinfo
+            elem_name_pvid_to_pvinfo[k] = {
+                "handles": d["handles"],
+                "pvsuffix": pvsuffix,
+                "pvunit": d["pvunit"],
+            }
 
     def _load_lattice_design_props_from_files(self):
 
