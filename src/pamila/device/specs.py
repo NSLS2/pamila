@@ -9,12 +9,9 @@ from pydantic import (
     field_validator,
     model_validator,
 )
-from scipy.interpolate import PchipInterpolator
 
 from ..serialization import json_deserialize_numpy_array, json_serialize_numpy_array
-
-FUNC_MAP = {"poly1d": np.poly1d, "pchip_interp": PchipInterpolator}
-IS_CALLABLE_GENERATOR = {"poly1d": True, "pchip_interp": True}
+from .conversion.plugin_manager import FUNC_MAP, IS_FACTORY_FUNC
 
 
 class FunctionSpec(BaseModel):
@@ -60,7 +57,7 @@ def _reconstruct_callable(func_spec: FunctionSpec) -> Callable:
     if base_func is None:
         raise ValueError(f"Unknown function name: {func_name}")
 
-    if IS_CALLABLE_GENERATOR[func_name]:
+    if IS_FACTORY_FUNC[func_name]:
         func = base_func(*func_spec.args, **func_spec.kwargs)
     else:
         func = partial(base_func, *func_spec.args, **func_spec.kwargs)
@@ -81,8 +78,12 @@ class UnitConvSpec(BaseModel):
     func: Callable | None = Field(
         default=None, exclude=True
     )  # Exclude func during serialization
+    aux_src_units: str | List[str] = Field(default_factory=list)
+    aux_dst_units: str | List[str] = Field(default_factory=list)
 
-    @field_validator("src_units", "dst_units", mode="before")
+    @field_validator(
+        "src_units", "dst_units", "aux_src_units", "aux_dst_units", mode="before"
+    )
     def listify_units(cls, value):
         if isinstance(value, str):
             return [value]
@@ -104,4 +105,6 @@ class UnitConvSpec(BaseModel):
 class PamilaDeviceActionSpec(BaseModel):
     input_cpt_attr_names: List[str]
     output_cpt_attr_names: List[str]
+    aux_input_cpt_attr_names: List[str] = Field(default_factory=list)
+    aux_output_cpt_attr_names: List[str] = Field(default_factory=list)
     unitconv: UnitConvSpec | None = None

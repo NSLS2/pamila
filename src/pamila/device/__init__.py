@@ -1,7 +1,5 @@
 from . import base, simple
 
-# from . import plugin_manager
-
 
 def _get_pdev_class_from_spec(spec: base.PamilaDeviceBaseSpec):
 
@@ -10,8 +8,8 @@ def _get_pdev_class_from_spec(spec: base.PamilaDeviceBaseSpec):
             return simple.SimplePamilaDevice
         case simple.SimplePamilaDeviceROSpec:
             return simple.SimplePamilaDeviceRO
-        case base.PamilaDeviceBaseSpec:
-            return base.PamilaDeviceBase
+        case _:
+            raise NotImplementedError
 
 
 def create_pamila_device_from_spec(spec: base.PamilaDeviceBaseSpec):

@@ -161,6 +161,45 @@ class Machine:
 
         return mlo
 
+    def add_to_simpv_definitions(self, new_entry: Dict):
+        copy = json.loads(json.dumps(new_entry))
+        self._conf.sim_pv_defs["sim_pv_definitions"].append(copy)
+        self._conf._add_sim_pv_def(copy)
+
+    def add_to_pv_elem_maps(self, pvname: str, new_entry: Dict):
+        d = self._conf.pv_elem_maps["pv_elem_maps"]
+        assert pvname not in d
+        copy = json.loads(json.dumps(new_entry))
+        d[pvname] = copy
+
+        self._conf._update_elem_name_pvid_to_pvinfo_ext()
+
+    def add_to_simpv_elem_maps(self, pvsuffix: str, new_entry: Dict):
+        d = self._conf.simpv_elem_maps["simpv_elem_maps"]
+        assert pvsuffix not in d
+        copy = json.loads(json.dumps(new_entry))
+        d[pvsuffix] = copy
+
+        self._conf._update_elem_name_pvid_to_pvinfo_int()
+
+    def add_to_elem_definitions(self, elem_name: str, new_entry: Dict):
+        d = self._conf.elem_defs["elem_definitions"]
+        assert elem_name not in d
+        copy = json.loads(json.dumps(new_entry))
+        d[elem_name] = copy
+
+    def replace_elem_definition(self, elem_name: str, new_entry: Dict):
+        d = self._conf.elem_defs["elem_definitions"]
+        assert elem_name in d
+        copy = json.loads(json.dumps(new_entry))
+        d[elem_name] = copy
+
+    def construct_mlvs_for_one_element(self, elem_name: str, exist_ok: bool = False):
+        d = self._conf.elem_defs["elem_definitions"]
+        self._conf._construct_mlvs_for_one_elem(
+            elem_name, d[elem_name], exist_ok=exist_ok
+        )
+
 
 class MultiMachine(BaseModel):
     machines: Dict[str, Machine]

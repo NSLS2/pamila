@@ -88,7 +88,9 @@ class PamilaOphydDeviceBase(Device):
         name,
         input_psig_names: Dict[str, List[str]],
         output_psig_names: Dict[str, List[str]],
-        unitconvs: Dict[str, UnitConvSpec | None],
+        aux_input_psig_names: Dict[str, List[str]],
+        aux_output_psig_names: Dict[str, List[str]],
+        unitconvs: Dict[str, UnitConvSpec],
         iterable_get_output: bool = False,
         **kwargs,
     ):
@@ -96,18 +98,51 @@ class PamilaOphydDeviceBase(Device):
 
         self._input_psig_names = input_psig_names
         self._output_psig_names = output_psig_names
+        self._aux_input_psig_names = aux_input_psig_names
+        self._aux_output_psig_names = aux_output_psig_names
+        self._combined_input_psig_names = {}
+        self._combined_output_psig_names = {}
+
         self._unitconvs = unitconvs
 
         self._input_psigs = {}
         self._output_psigs = {}
+        self._aux_input_psigs = {}
+        self._aux_output_psigs = {}
+        self._combined_input_psigs = {}
+        self._combined_output_psigs = {}
 
         for action_type in self._input_psig_names.keys():
+
             self._input_psigs[action_type] = [
                 getattr(self, name) for name in self._input_psig_names[action_type]
             ]
             self._output_psigs[action_type] = [
                 getattr(self, name) for name in self._output_psig_names[action_type]
             ]
+
+            self._aux_input_psigs[action_type] = [
+                getattr(self, name) for name in self._aux_input_psig_names[action_type]
+            ]
+            self._combined_input_psigs[action_type] = (
+                self._input_psigs[action_type] + self._aux_input_psigs[action_type]
+            )
+
+            self._aux_output_psigs[action_type] = [
+                getattr(self, name) for name in self._aux_output_psig_names[action_type]
+            ]
+            self._combined_output_psigs[action_type] = (
+                self._output_psigs[action_type] + self._aux_output_psigs[action_type]
+            )
+
+            self._combined_input_psig_names[action_type] = (
+                self._input_psig_names[action_type]
+                + self._aux_input_psig_names[action_type]
+            )
+            self._combined_output_psig_names[action_type] = (
+                self._output_psig_names[action_type]
+                + self._aux_output_psig_names[action_type]
+            )
 
         if len(self._output_psigs["get"]) == 1:
             self._return_iterable_for_get = iterable_get_output
@@ -126,29 +161,29 @@ class PamilaOphydDeviceBase(Device):
     def _convert_values(self, values_w_unit: List, action_type: str) -> List:
 
         uc = self._unitconvs[action_type]
+        assert isinstance(uc, UnitConvSpec)
 
-        if uc:
-            assert len(values_w_unit) == len(uc.src_units)
-            values_wo_unit = [
-                v.to(src_unit).m for v, src_unit in zip(values_w_unit, uc.src_units)
-            ]
+        combined_src_units = uc.src_units + uc.aux_src_units
+        assert len(values_w_unit) == len(combined_src_units)
+        values_wo_unit = [
+            v.to(src_unit).m for v, src_unit in zip(values_w_unit, combined_src_units)
+        ]
 
-            outputs_wo_unit = uc.func(*values_wo_unit)
+        outputs_wo_unit = uc.func(*values_wo_unit)
 
-            try:
-                len(outputs_wo_unit)
-            except TypeError:
-                output = outputs_wo_unit * Unit(uc.dst_units[0])
-                return [output]
+        try:
+            len(outputs_wo_unit)
+        except TypeError:
+            output = outputs_wo_unit * Unit(uc.dst_units[0])
+            return [output]
 
-            assert len(outputs_wo_unit) == len(uc.dst_units)
-            return [
-                v_wo_unit * Unit(dst_unit)
-                for v_wo_unit, dst_unit in zip(outputs_wo_unit, uc.dst_units)
-            ]
+        combined_dst_units = uc.dst_units + uc.aux_dst_units
 
-        else:
-            return values_w_unit
+        assert len(outputs_wo_unit) == len(combined_dst_units)
+        return [
+            v_wo_unit * Unit(dst_unit)
+            for v_wo_unit, dst_unit in zip(outputs_wo_unit, combined_dst_units)
+        ]
 
     def convert_values(
         self,
@@ -171,7 +206,7 @@ class PamilaOphydDeviceBase(Device):
 
     def get(self, return_iterable: bool | None = None):
 
-        LoLv_vals = [psig.get() for psig in self._input_psigs["get"]]
+        LoLv_vals = [psig.get() for psig in self._combined_input_psigs["get"]]
 
         HiLv_vals = self._convert_values(LoLv_vals, "get")
         ts = ttime.time()
@@ -193,11 +228,11 @@ class PamilaOphydDeviceBase(Device):
 
         LoLv_vals = [
             res[f"{self.root.name}_{cpt_attr_name}"]["value"]
-            for cpt_attr_name in self._input_psig_names["get"]
+            for cpt_attr_name in self._combined_input_psig_names["get"]
         ]
         HiLv_vals = self._convert_values(LoLv_vals, "get")
 
-        for cpt_attr_name, v in zip(self._output_psig_names["get"], HiLv_vals):
+        for cpt_attr_name, v in zip(self._combined_output_psig_names["get"], HiLv_vals):
             k = f"{self.root.name}_{cpt_attr_name}"
             res[k]["value"] = v
             res[k]["timestamp"] = ts
@@ -209,12 +244,18 @@ class PamilaOphydDeviceBase(Device):
         if not isinstance(new_values_w_unit, list):
             new_values_w_unit = [new_values_w_unit]
 
+        # Save user-provided high-level "put" values to the storage signals
+        assert len(self._input_psigs["put"]) == len(new_values_w_unit)
         for psig, v in zip(self._input_psigs["put"], new_values_w_unit):
             psig.put(v, **kwargs)
 
-        LoLv_vals = self._convert_values(new_values_w_unit, "put")
+        LoLv_aux_vals_w_unit = [psig.get() for psig in self._aux_input_psigs["put"]]
+        combined_new_values_w_unit = new_values_w_unit + LoLv_aux_vals_w_unit
 
-        for psig, v in zip(self._output_psigs["put"], LoLv_vals):
+        LoLv_vals = self._convert_values(combined_new_values_w_unit, "put")
+
+        assert len(self._combined_output_psigs["put"]) == len(LoLv_vals)
+        for psig, v in zip(self._combined_output_psigs["put"], LoLv_vals):
             psig.put(v, **kwargs)
 
     def set(self, values_w_unit, **kwargs):
@@ -247,8 +288,12 @@ class PamilaDeviceBase:
 
         self._input_psig_names = {}
         self._output_psig_names = {}
+        self._aux_input_psig_names = {}
+        self._aux_output_psig_names = {}
         self._n_input = {}
         self._n_output = {}
+        self._n_aux_input = {}
+        self._n_aux_output = {}
         self._unitconvs = {}
         for action_type, spec in self._action_specs.items():
 
@@ -257,9 +302,17 @@ class PamilaDeviceBase:
 
             self._input_psig_names[action_type] = spec.input_cpt_attr_names
             self._output_psig_names[action_type] = spec.output_cpt_attr_names
+            self._aux_input_psig_names[action_type] = spec.aux_input_cpt_attr_names
+            self._aux_output_psig_names[action_type] = spec.aux_output_cpt_attr_names
 
             self._n_input[action_type] = len(self._input_psig_names[action_type])
             self._n_output[action_type] = len(self._output_psig_names[action_type])
+            self._n_aux_input[action_type] = len(
+                self._aux_input_psig_names[action_type]
+            )
+            self._n_aux_output[action_type] = len(
+                self._aux_output_psig_names[action_type]
+            )
 
             self._unitconvs[action_type] = self._process_unitconv(
                 spec.unitconv, action_type
@@ -328,6 +381,8 @@ class PamilaDeviceBase:
         self._ophyd_device = dynamic_class(
             input_psig_names=self._input_psig_names,
             output_psig_names=self._output_psig_names,
+            aux_input_psig_names=self._aux_input_psig_names,
+            aux_output_psig_names=self._aux_output_psig_names,
             unitconvs=self._unitconvs,
             iterable_get_output=self._iterable_get_output,
             **kwargs,
@@ -340,16 +395,15 @@ class PamilaDeviceBase:
 
         else:
             uc = unitconv
-            if isinstance(uc.src_units, str):
-                uc.src_units = [uc.src_units]
-            if isinstance(uc.dst_units, str):
-                uc.dst_units = [uc.dst_units]
 
             assert isinstance(uc.src_units, list)
             assert len(uc.src_units) == self._n_input[action_type]
 
             assert isinstance(uc.dst_units, list)
             assert len(uc.dst_units) == self._n_output[action_type]
+
+            assert isinstance(uc.aux_src_units, list)
+            assert len(uc.aux_src_units) == self._n_aux_input[action_type]
 
             return uc
 
