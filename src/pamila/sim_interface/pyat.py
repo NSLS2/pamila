@@ -120,6 +120,8 @@ class Interface:
             case "TuneSimPV":
                 sel_class = TuneSimPV
                 args = [getattr(StringPlane, pv_def.args[0])]
+            case "FakeInsertionDeviceGapSimPV":
+                sel_class = FakeInsertionDeviceGapSimPV
             case _:
                 raise NotImplementedError
         self._sim_pvs[sim_pvname] = sel_class(self, sim_pvname, *args, **kwargs)
@@ -432,3 +434,27 @@ class BeamCurrentSimPV(SimPVRO):
         lattice = self._interface.get_lattice()
 
         self._getter = lattice.get_beam_current
+
+
+class FakeInsertionDeviceGapSimPV(SimPV):
+    def __init__(self, sim_itf: Interface, sim_pvname: str):
+        """Temporary fake SimPV that does nothing to the simulator
+        except for keeping track of the gap value of an insertion device"""
+
+        recalcs_before_get = []
+
+        units = "m"
+
+        super().__init__(
+            sim_itf, sim_pvname, units=units, recalcs_before_get=recalcs_before_get
+        )
+
+        storage = self._interface._vars_outside_pyat
+
+        assert sim_pvname not in storage
+        storage[sim_pvname] = 0.0
+
+        access_list = [KIA(sim_pvname)]
+
+        self._getter = ChainedPropertyFetcher(storage, access_list).get
+        self._setter = ChainedPropertyPusher(storage, access_list).put

@@ -75,7 +75,9 @@ class ChainedPropertyAccess:
         self.root = root_obj
 
         assert len(access_list) != 0
-        assert [isinstance(v, (KeyIndexAccess, AttributeAccess)) for v in access_list]
+        assert all(
+            [isinstance(v, (KeyIndexAccess, AttributeAccess)) for v in access_list]
+        )
 
         self.access_list = access_list
 
