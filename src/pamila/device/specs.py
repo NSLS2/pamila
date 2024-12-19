@@ -78,12 +78,8 @@ class UnitConvSpec(BaseModel):
     func: Callable | None = Field(
         default=None, exclude=True
     )  # Exclude func during serialization
-    aux_src_units: str | List[str] = Field(default_factory=list)
-    aux_dst_units: str | List[str] = Field(default_factory=list)
 
-    @field_validator(
-        "src_units", "dst_units", "aux_src_units", "aux_dst_units", mode="before"
-    )
+    @field_validator("src_units", "dst_units", mode="before")
     def listify_units(cls, value):
         if isinstance(value, str):
             return [value]
@@ -106,5 +102,4 @@ class PamilaDeviceActionSpec(BaseModel):
     input_cpt_attr_names: List[str]
     output_cpt_attr_names: List[str]
     aux_input_cpt_attr_names: List[str] = Field(default_factory=list)
-    aux_output_cpt_attr_names: List[str] = Field(default_factory=list)
     unitconv: UnitConvSpec | None = None

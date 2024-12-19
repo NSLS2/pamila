@@ -1,6 +1,6 @@
 from collections import defaultdict
 from enum import Enum
-from typing import Dict, List
+from typing import Dict, List, Literal
 
 from pydantic import BaseModel, Field
 
@@ -35,11 +35,29 @@ class SimulatorPvDefinition(BaseModel):
 class SimulatorInterfaceSpec(BaseModel):
     package_name: str
     sim_pv_defs: Dict[str, SimulatorPvDefinition] = Field(default_factory=dict)
+    conversion_plugin_folder: str = ""
+
+
+class SimConfigs(BaseModel):
+    facility: str
+    machine: str
+    control_system: Literal["epics", "tango"]
+    simulator_configs: Dict[str, SimulatorInterfaceSpec | None]
+    selected_config: str
+    conversion_plugin_folder: str = ""
+
+    model_config = {"extra": "forbid", "frozen": True}
+
+
+class PyATLatticeModelSpec(BaseModel):
+    lattice_filepath: str
+    non_simulator_settings_filepath: str = ""
 
 
 class PyATInterfaceSpec(SimulatorInterfaceSpec):
-    lattice_filepath: str
     closed_orbit_uint32_indexes: List[int]
+    lattice_models: Dict[str, PyATLatticeModelSpec]
+    default_lattice_model: str
 
 
 def get_sim_pvprefix(machine_mode: MachineMode):
@@ -52,7 +70,11 @@ def get_sim_pvprefix(machine_mode: MachineMode):
     return pvprefix
 
 
-def create_interface(sim_itf_spec: SimulatorInterfaceSpec, machine_mode: MachineMode):
+def create_interface(
+    sim_itf_spec: SimulatorInterfaceSpec,
+    machine_mode: MachineMode,
+    model_name: str = "",
+):
     match sim_itf_spec:
         case PyATInterfaceSpec():
             assert sim_itf_spec.package_name == "pyat"
@@ -60,7 +82,12 @@ def create_interface(sim_itf_spec: SimulatorInterfaceSpec, machine_mode: Machine
             from . import pyat
 
             sim_itf = pyat.Interface(machine_mode, sim_itf_spec.sim_pv_defs)
-            sim_itf.load_lattice(sim_itf_spec.lattice_filepath)
+
+            if model_name == "":
+                model_name = sim_itf_spec.default_lattice_model
+            sel_lat_model = sim_itf_spec.lattice_models[model_name]
+
+            sim_itf.load_lattice(sel_lat_model.lattice_filepath)
 
             sim_itf.set_closed_orbit_refpts(sim_itf_spec.closed_orbit_uint32_indexes)
         case _:

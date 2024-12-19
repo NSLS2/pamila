@@ -244,7 +244,7 @@ class PamilaSignal:
         return self._base_signal_id
 
 
-class ExternalPamilaSignal(PamilaSignal, EpicsSignal):
+class ExternalPamilaEpicsSignal(PamilaSignal, EpicsSignal):
     def __init__(self, pvname, *, mode: MachineMode, name: str, unit: str, **kwargs):
         EpicsSignal.__init__(self, pvname, name=name, **kwargs)
         read_only = False
@@ -270,7 +270,7 @@ class ExternalPamilaSignal(PamilaSignal, EpicsSignal):
         super().put(value_w_unit, **kwargs)
 
 
-class ExternalPamilaSignalRO(PamilaSignal, EpicsSignalRO):
+class ExternalPamilaEpicsSignalRO(PamilaSignal, EpicsSignalRO):
     def __init__(self, pvname, *, mode: MachineMode, name: str, unit: str, **kwargs):
         EpicsSignalRO.__init__(self, pvname, name=name, **kwargs)
         read_only = True

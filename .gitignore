@@ -164,5 +164,5 @@ cython_debug/
 .vscode
 *.code-workspace
 
-examples/nsls2/*
+examples/demo_generated/*
 examples/*.pdf

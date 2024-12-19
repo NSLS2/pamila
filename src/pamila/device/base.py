@@ -11,8 +11,8 @@ from pydantic import BaseModel, field_serializer, field_validator
 from .. import MachineMode
 from ..serialization import json_deserialize_component, json_serialize_component
 from ..signal import (
-    ExternalPamilaSignal,
-    ExternalPamilaSignalRO,
+    ExternalPamilaEpicsSignal,
+    ExternalPamilaEpicsSignalRO,
     InternalPamilaSignal,
     InternalPamilaSignalRO,
     UserPamilaSignal,
@@ -23,8 +23,8 @@ from .specs import PamilaDeviceActionSpec, UnitConvSpec
 PAMILA_SIGNAL_CLASS_MAP = dict(
     InternalPamilaSignal=InternalPamilaSignal,
     InternalPamilaSignalRO=InternalPamilaSignalRO,
-    ExternalPamilaSignal=ExternalPamilaSignal,
-    ExternalPamilaSignalRO=ExternalPamilaSignalRO,
+    ExternalPamilaEpicsSignal=ExternalPamilaEpicsSignal,
+    ExternalPamilaEpicsSignalRO=ExternalPamilaEpicsSignalRO,
     UserPamilaSignal=UserPamilaSignal,
 )
 
@@ -89,7 +89,6 @@ class PamilaOphydDeviceBase(Device):
         input_psig_names: Dict[str, List[str]],
         output_psig_names: Dict[str, List[str]],
         aux_input_psig_names: Dict[str, List[str]],
-        aux_output_psig_names: Dict[str, List[str]],
         unitconvs: Dict[str, UnitConvSpec],
         iterable_get_output: bool = False,
         **kwargs,
@@ -99,7 +98,6 @@ class PamilaOphydDeviceBase(Device):
         self._input_psig_names = input_psig_names
         self._output_psig_names = output_psig_names
         self._aux_input_psig_names = aux_input_psig_names
-        self._aux_output_psig_names = aux_output_psig_names
         self._combined_input_psig_names = {}
         self._combined_output_psig_names = {}
 
@@ -108,7 +106,6 @@ class PamilaOphydDeviceBase(Device):
         self._input_psigs = {}
         self._output_psigs = {}
         self._aux_input_psigs = {}
-        self._aux_output_psigs = {}
         self._combined_input_psigs = {}
         self._combined_output_psigs = {}
 
@@ -124,25 +121,22 @@ class PamilaOphydDeviceBase(Device):
             self._aux_input_psigs[action_type] = [
                 getattr(self, name) for name in self._aux_input_psig_names[action_type]
             ]
+
+            if action_type == "get":
+                assert self._aux_input_psigs[action_type] == []
+
             self._combined_input_psigs[action_type] = (
                 self._input_psigs[action_type] + self._aux_input_psigs[action_type]
             )
-
-            self._aux_output_psigs[action_type] = [
-                getattr(self, name) for name in self._aux_output_psig_names[action_type]
-            ]
-            self._combined_output_psigs[action_type] = (
-                self._output_psigs[action_type] + self._aux_output_psigs[action_type]
-            )
+            self._combined_output_psigs[action_type] = self._output_psigs[action_type]
 
             self._combined_input_psig_names[action_type] = (
                 self._input_psig_names[action_type]
                 + self._aux_input_psig_names[action_type]
             )
-            self._combined_output_psig_names[action_type] = (
-                self._output_psig_names[action_type]
-                + self._aux_output_psig_names[action_type]
-            )
+            self._combined_output_psig_names[action_type] = self._output_psig_names[
+                action_type
+            ]
 
         if len(self._output_psigs["get"]) == 1:
             self._return_iterable_for_get = iterable_get_output
@@ -163,10 +157,9 @@ class PamilaOphydDeviceBase(Device):
         uc = self._unitconvs[action_type]
         assert isinstance(uc, UnitConvSpec)
 
-        combined_src_units = uc.src_units + uc.aux_src_units
-        assert len(values_w_unit) == len(combined_src_units)
+        assert len(values_w_unit) == len(uc.src_units)
         values_wo_unit = [
-            v.to(src_unit).m for v, src_unit in zip(values_w_unit, combined_src_units)
+            v.to(src_unit).m for v, src_unit in zip(values_w_unit, uc.src_units)
         ]
 
         outputs_wo_unit = uc.func(*values_wo_unit)
@@ -177,12 +170,10 @@ class PamilaOphydDeviceBase(Device):
             output = outputs_wo_unit * Unit(uc.dst_units[0])
             return [output]
 
-        combined_dst_units = uc.dst_units + uc.aux_dst_units
-
-        assert len(outputs_wo_unit) == len(combined_dst_units)
+        assert len(outputs_wo_unit) == len(uc.dst_units)
         return [
             v_wo_unit * Unit(dst_unit)
-            for v_wo_unit, dst_unit in zip(outputs_wo_unit, combined_dst_units)
+            for v_wo_unit, dst_unit in zip(outputs_wo_unit, uc.dst_units)
         ]
 
     def convert_values(
@@ -277,9 +268,9 @@ class PamilaDeviceBase:
         **kwargs,  # kwargs for base ophyd device instantiation
     ):
         self._machine_name = pdev_spec.machine_name
-        self._mode = pdev_spec.machine_mode  # mode
+        self._mode = pdev_spec.machine_mode
         self._read_only = pdev_spec.read_only
-        self._components = pdev_spec.components  # components
+        self._components = pdev_spec.components
         self._iterable_get_output = pdev_spec.iterable_get_output
         self._podev_kwargs = {}
         self._odev_kwargs = dict(prefix="", name=pdev_spec.pdev_name, **kwargs)
@@ -289,11 +280,9 @@ class PamilaDeviceBase:
         self._input_psig_names = {}
         self._output_psig_names = {}
         self._aux_input_psig_names = {}
-        self._aux_output_psig_names = {}
         self._n_input = {}
         self._n_output = {}
         self._n_aux_input = {}
-        self._n_aux_output = {}
         self._unitconvs = {}
         for action_type, spec in self._action_specs.items():
 
@@ -303,20 +292,18 @@ class PamilaDeviceBase:
             self._input_psig_names[action_type] = spec.input_cpt_attr_names
             self._output_psig_names[action_type] = spec.output_cpt_attr_names
             self._aux_input_psig_names[action_type] = spec.aux_input_cpt_attr_names
-            self._aux_output_psig_names[action_type] = spec.aux_output_cpt_attr_names
 
             self._n_input[action_type] = len(self._input_psig_names[action_type])
             self._n_output[action_type] = len(self._output_psig_names[action_type])
             self._n_aux_input[action_type] = len(
                 self._aux_input_psig_names[action_type]
             )
-            self._n_aux_output[action_type] = len(
-                self._aux_output_psig_names[action_type]
-            )
 
             self._unitconvs[action_type] = self._process_unitconv(
                 spec.unitconv, action_type
             )
+
+        assert self._n_aux_input["get"] == 0
 
         self._ophyd_device_classes = None
         self._ophyd_device = None
@@ -382,7 +369,6 @@ class PamilaDeviceBase:
             input_psig_names=self._input_psig_names,
             output_psig_names=self._output_psig_names,
             aux_input_psig_names=self._aux_input_psig_names,
-            aux_output_psig_names=self._aux_output_psig_names,
             unitconvs=self._unitconvs,
             iterable_get_output=self._iterable_get_output,
             **kwargs,
@@ -397,13 +383,13 @@ class PamilaDeviceBase:
             uc = unitconv
 
             assert isinstance(uc.src_units, list)
-            assert len(uc.src_units) == self._n_input[action_type]
+            assert (
+                len(uc.src_units)
+                == self._n_input[action_type] + self._n_aux_input[action_type]
+            )
 
             assert isinstance(uc.dst_units, list)
             assert len(uc.dst_units) == self._n_output[action_type]
-
-            assert isinstance(uc.aux_src_units, list)
-            assert len(uc.aux_src_units) == self._n_aux_input[action_type]
 
             return uc
 

@@ -2,7 +2,7 @@ from copy import deepcopy
 import json
 from pathlib import Path
 import re
-from typing import Dict, List
+from typing import Dict, List, Literal
 
 from ophyd import Component as Cpt
 import yaml
@@ -23,14 +23,15 @@ from ..middle_layer import (
     MiddleLayerVariableSpec,
 )
 from ..signal import (
-    ExternalPamilaSignal,
-    ExternalPamilaSignalRO,
+    ExternalPamilaEpicsSignal,
+    ExternalPamilaEpicsSignalRO,
     InternalPamilaSignal,
     InternalPamilaSignalRO,
     UserPamilaSignal,
 )
 from ..sim_interface import (
     PyATInterfaceSpec,
+    SimConfigs,
     SimulatorInterfacePath,
     SimulatorPvDefinition,
     _reset_sim_interface,
@@ -38,6 +39,21 @@ from ..sim_interface import (
     get_sim_pvprefix,
     set_sim_interface_spec,
 )
+from .generator import StandardSetpointDeviceDefinition
+
+ExternalPamilaSignals = {
+    "epics": {
+        "Signal": ExternalPamilaEpicsSignal,
+        "SignalRO": ExternalPamilaEpicsSignalRO,
+    }
+}
+if False:
+    # ExternalPamilaTangoSignal & ExternalPamilaTangoSignalRO
+    # currently do not exist. To be implemented.
+    ExternalPamilaSignals["tango"] = {
+        "Signal": ExternalPamilaTangoSignal,
+        "SignalRO": ExternalPamilaTangoSignalRO,
+    }
 
 
 def create_pdev_psig_names(mlv_name, machine_mode):
@@ -55,25 +71,19 @@ def create_pdev_psig_names(mlv_name, machine_mode):
             raise ValueError
 
     pdev_name = f"{pdev_prefix}_{mlv_name}"
-    LoLv_psig_name = f"{psig_prefix}_{mlv_name}"
+    psig_name_prefix = f"{psig_prefix}_{mlv_name}"
 
-    return pdev_name, LoLv_psig_name
+    return pdev_name, psig_name_prefix
 
 
 def get_unitconv(
     elem_def: Dict,
     in_reprs: List[str],
     out_reprs: List[str],
-    aux_in_reprs: List[str] | None = None,
-    aux_out_reprs: List[str] | None = None,
     func_tag: str = "default",
 ):
-    if aux_in_reprs is None:
-        aux_in_reprs = []
-    if aux_out_reprs is None:
-        aux_out_reprs = []
 
-    if (in_reprs == out_reprs) and (aux_in_reprs == []) and (aux_out_reprs == []):
+    if in_reprs == out_reprs:
         func_spec = dict(name="identity")  # identity unit conversion
     else:
         func_spec_list = []
@@ -81,10 +91,6 @@ def get_unitconv(
             if _spec["in_reprs"] != in_reprs:
                 continue
             if _spec["out_reprs"] != out_reprs:
-                continue
-            if _spec.get("aux_in_reprs", []) != aux_in_reprs:
-                continue
-            if _spec.get("aux_out_reprs", []) != aux_out_reprs:
                 continue
             if _spec.get("func_tag", "default") != func_tag:
                 continue
@@ -95,8 +101,6 @@ def get_unitconv(
             err_lines = ["Could not find unit conversion:"]
             err_lines.append(f"{in_reprs = }")
             err_lines.append(f"{out_reprs = }")
-            err_lines.append(f"{aux_in_reprs = }")
-            err_lines.append(f"{aux_out_reprs = }")
             err_lines.append(f"{elem_def = }")
 
             raise ValueError("\n\n".join(err_lines))
@@ -109,14 +113,10 @@ def get_unitconv(
 
     src_units = [elem_def["repr_units"][repr] for repr in in_reprs]
     dst_units = [elem_def["repr_units"][repr] for repr in out_reprs]
-    aux_src_units = [elem_def["repr_units"][repr] for repr in aux_in_reprs]
-    aux_dst_units = [elem_def["repr_units"][repr] for repr in aux_out_reprs]
 
     unitconv_spec_obj = UnitConvSpec(
         src_units=src_units,
         dst_units=dst_units,
-        aux_src_units=aux_src_units,
-        aux_dst_units=aux_dst_units,
         func_spec=func_spec_obj,
     )
 
@@ -127,37 +127,31 @@ def get_pvids_in_elem(ch_def):
     pvids_in_elem_d = {}
 
     for ext_or_int in ["ext", "int"]:
-        if ext_or_int in ch_def["pvs"]:
-            pvids = ch_def["pvs"][ext_or_int]
-            match len(pvids):
-                case 0:
-                    raise RuntimeError
-                case _:
-                    pvids_in_elem_d[ext_or_int] = pvids
+        if ext_or_int not in ch_def:
+            continue
+
+        pvids_in_elem_d[ext_or_int] = {}
+        if "get" in ch_def[ext_or_int]:
+            pvids_in_elem_d[ext_or_int]["get"] = ch_def[ext_or_int]["get"]["input_pvs"]
+        if "put" in ch_def[ext_or_int]:
+            pvids_in_elem_d[ext_or_int]["put"] = ch_def[ext_or_int]["put"]["output_pvs"]
 
     return pvids_in_elem_d
 
 
-def get_defined_machine_modes(ch_def, elem_name_pvid_to_pvinfo, elem_name):
+def get_aux_pvids_in_elem(ch_def):
+    pvids_in_elem_d = {}
 
-    pvids_in_elem_d = get_pvids_in_elem(ch_def)
+    for ext_or_int in ["ext", "int"]:
+        if ext_or_int not in ch_def:
+            continue
 
-    machine_mode_list = []
+        pvids_in_elem_d[ext_or_int] = {}
+        if "put" in ch_def[ext_or_int]:
+            if "aux_input_pvs" in ch_def[ext_or_int]["put"]:
+                pvids_in_elem_d[ext_or_int] = ch_def[ext_or_int]["put"]["aux_input_pvs"]
 
-    if "ext" in pvids_in_elem_d:
-        extpv_name_d_list = [
-            elem_name_pvid_to_pvinfo["ext"][(elem_name, pvid_in_elem)]["pvname"]
-            for pvid_in_elem in pvids_in_elem_d["ext"]
-        ]
-        if all([MachineMode.LIVE.value in _d for _d in extpv_name_d_list]):
-            machine_mode_list.append(MachineMode.LIVE)
-        if all([MachineMode.DIGITAL_TWIN.value in _d for _d in extpv_name_d_list]):
-            machine_mode_list.append(MachineMode.DIGITAL_TWIN)
-
-    if "int" in pvids_in_elem_d:
-        machine_mode_list.append(MachineMode.SIMULATOR)
-
-    return machine_mode_list
+    return pvids_in_elem_d
 
 
 def get_ext_or_int(machine_mode: MachineMode):
@@ -168,28 +162,61 @@ def get_ext_or_int(machine_mode: MachineMode):
     return ext_or_int
 
 
-def _get_pvinfo_list(ch_def, elem_name_pvid_to_pvinfo, elem_name, machine_mode):
+def _get_pvinfo_dict(ch_def, elem_name_pvid_to_pvinfo, elem_name, machine_mode):
 
     ext_or_int = get_ext_or_int(machine_mode)
 
     pvids_in_elem_d = get_pvids_in_elem(ch_def)
 
-    info_list = [
-        elem_name_pvid_to_pvinfo[ext_or_int][(elem_name, pvid_in_elem)]
-        for pvid_in_elem in pvids_in_elem_d[ext_or_int]
-    ]
+    info_list_d = {}
+    for get_or_put, pvid_list_in_elem in pvids_in_elem_d[ext_or_int].items():
+        info_list_d[get_or_put] = [
+            elem_name_pvid_to_pvinfo[ext_or_int][(elem_name, pvid_in_elem)]
+            for pvid_in_elem in pvid_list_in_elem
+        ]
 
-    return ext_or_int, info_list
+    return ext_or_int, info_list_d
 
 
 def get_pvnames(ch_def, elem_name_pvid_to_pvinfo, elem_name, machine_mode):
 
-    ext_or_int, info_list = _get_pvinfo_list(
+    ext_or_int, info_dict = _get_pvinfo_dict(
         ch_def, elem_name_pvid_to_pvinfo, elem_name, machine_mode
     )
 
     if ext_or_int == "ext":
+        pvname_d = {
+            get_or_put: [info["pvname"][machine_mode.value] for info in info_list]
+            for get_or_put, info_list in info_dict.items()
+        }
+    else:
+        pvprefix = get_sim_pvprefix(machine_mode)
+        pvname_d = {}
+        for get_or_put, info_list in info_dict.items():
+            pvname_list = []
+            for info in info_list:
+                pvsuffix = info["pvsuffix"]
+                pvname = f"{pvprefix}{pvsuffix}"
+                pvname_list.append(pvname)
+            pvname_d[get_or_put] = pvname_list
+
+    return pvname_d
+
+
+def get_aux_input_pvnames_pvunits(
+    ch_def, elem_name_pvid_to_pvinfo, elem_name, machine_mode, ext_or_int
+):
+
+    pvid_in_elem_list = get_aux_pvids_in_elem(ch_def)[ext_or_int]
+
+    info_list = [
+        elem_name_pvid_to_pvinfo[ext_or_int][(elem_name, pvid_in_elem)]
+        for pvid_in_elem in pvid_in_elem_list
+    ]
+
+    if ext_or_int == "ext":
         pvname_list = [info["pvname"][machine_mode.value] for info in info_list]
+        pvunit_list = [info["pvunit"][machine_mode.value] for info in info_list]
     else:
         pvprefix = get_sim_pvprefix(machine_mode)
         pvname_list = []
@@ -198,110 +225,34 @@ def get_pvnames(ch_def, elem_name_pvid_to_pvinfo, elem_name, machine_mode):
             pvname = f"{pvprefix}{pvsuffix}"
             pvname_list.append(pvname)
 
-    return pvname_list
-
-
-def _get_aux_pvnames_pvunits(
-    input_or_output,
-    ch_def,
-    elem_name_pvid_to_pvinfo,
-    elem_name,
-    machine_mode,
-    get_or_put,
-):
-
-    aux_key = f"aux_{input_or_output}_pvs"
-
-    if aux_key not in ch_def:
-        pvname_list, pvunit_list = [], []
-        return pvname_list, pvunit_list
-
-    if input_or_output == "output":
-        try:
-            assert "get" not in ch_def[aux_key]
-        except AssertionError:
-            raise AssertionError(f"`{aux_key}` can only have 'put' as key, not 'get'")
-
-        assert get_or_put == "put"
-
-    ext_or_int, _ = _get_pvinfo_list(
-        ch_def, elem_name_pvid_to_pvinfo, elem_name, machine_mode
-    )
-
-    try:
-        pvid_in_elem_list = ch_def[aux_key][get_or_put][ext_or_int]
-    except KeyError:
-        pvname_list, pvunit_list = [], []
-        return pvname_list, pvunit_list
-
-    info_list = [
-        elem_name_pvid_to_pvinfo[ext_or_int][(elem_name, pvid_in_elem)]
-        for pvid_in_elem in pvid_in_elem_list
-    ]
-
-    if ext_or_int == "ext":
-        pvname_list = [
-            elem_name_pvid_to_pvinfo["ext"][(elem_name, pvid_in_elem)]["pvname"][
-                machine_mode.value
-            ]
-            for pvid_in_elem in pvid_in_elem_list
-        ]
-
-        pvunit_list = [info["pvunit"][machine_mode.value] for info in info_list]
-    else:
-        pvprefix = get_sim_pvprefix(machine_mode)
-
-        pvsuffix_list = [
-            elem_name_pvid_to_pvinfo["int"][(elem_name, pvid_in_elem)]["pvsuffix"]
-            for pvid_in_elem in pvid_in_elem_list
-        ]
-
-        pvname_list = [f"{pvprefix}{pvsuffix}" for pvsuffix in pvsuffix_list]
-
         pvunit_list = [info["pvunit"] for info in info_list]
 
     return pvname_list, pvunit_list
 
 
-def get_aux_input_pvnames_pvunits(
-    ch_def, elem_name_pvid_to_pvinfo, elem_name, machine_mode, get_or_put
-):
-    return _get_aux_pvnames_pvunits(
-        "input",
-        ch_def,
-        elem_name_pvid_to_pvinfo,
-        elem_name,
-        machine_mode,
-        get_or_put=get_or_put,
-    )
-
-
-def get_aux_output_pvnames_pvunits(
-    ch_def, elem_name_pvid_to_pvinfo, elem_name, machine_mode
-):
-
-    return _get_aux_pvnames_pvunits(
-        "output",
-        ch_def,
-        elem_name_pvid_to_pvinfo,
-        elem_name,
-        machine_mode,
-        get_or_put="put",
-    )
-
-
 def get_pvunits(ch_def, elem_name_pvid_to_pvinfo, elem_name, machine_mode):
 
-    ext_or_int, info_list = _get_pvinfo_list(
+    ext_or_int, info_dict = _get_pvinfo_dict(
         ch_def, elem_name_pvid_to_pvinfo, elem_name, machine_mode
     )
 
     if ext_or_int == "ext":
-        pvunit_list = [info["pvunit"][machine_mode.value] for info in info_list]
+        pvunit_d = {
+            get_or_put: [info["pvunit"][machine_mode.value] for info in info_list]
+            for get_or_put, info_list in info_dict.items()
+        }
     else:
-        pvunit_list = [info["pvunit"] for info in info_list]
+        pvunit_d = {
+            get_or_put: [info["pvunit"] for info in info_list]
+            for get_or_put, info_list in info_dict.items()
+        }
 
-    return pvunit_list
+    return pvunit_d
+
+
+def get_reprs(elem_def, ext_or_int: Literal["ext", "int"], pvid_list: List[str]):
+
+    return [elem_def["pvid_to_repr_map"][ext_or_int][pvid] for pvid in pvid_list]
 
 
 def _get_standard_RB_components(
@@ -313,13 +264,14 @@ def _get_standard_RB_components(
     elem_name_pvid_to_pvinfo,
     elem_name,
     simulator_interface_path,
+    control_system: Literal["epics", "tango"],
 ):
 
     assert ch_def["handle"] == "RB"
 
     match get_ext_or_int(machine_mode):
         case "ext":
-            LoLv_sig_class = ExternalPamilaSignalRO
+            LoLv_sig_class = ExternalPamilaSignals[control_system]["SignalRO"]
             LoLv_cpt_kwargs = {}
         case "int":
             LoLv_sig_class = InternalPamilaSignalRO
@@ -327,17 +279,20 @@ def _get_standard_RB_components(
         case _:
             raise ValueError
 
-    _LoLv_pv_units = get_pvunits(
+    _LoLv_pv_units_d = get_pvunits(
         ch_def, elem_name_pvid_to_pvinfo, elem_name, machine_mode
     )
+    assert list(_LoLv_pv_units_d) == ["get"]
+    _LoLv_pv_units = _LoLv_pv_units_d["get"]
     assert len(_LoLv_pv_units) == 1
     LoLv_pv_unit = _LoLv_pv_units[0]
-    # ^ Note that "LoLv_pv_unit == elem_def['repr_units'][in_reprs[0]]" may NOT
-    # necessarily hold. But their dimension must be the same.
-    out_reprs = ch_def["reprs"]
+    out_reprs = ch_def["HiLv_reprs"]
+    assert len(out_reprs) == 1
     mlv_unit = elem_def["repr_units"][out_reprs[0]]
 
-    _pvnames = get_pvnames(ch_def, elem_name_pvid_to_pvinfo, elem_name, machine_mode)
+    _pvnames_d = get_pvnames(ch_def, elem_name_pvid_to_pvinfo, elem_name, machine_mode)
+    assert list(_pvnames_d) == ["get"]
+    _pvnames = _pvnames_d["get"]
     assert len(_pvnames) == 1
     pvname = _pvnames[0]
 
@@ -363,11 +318,8 @@ def _get_standard_RB_components(
 
 def _get_standard_RB_pdev_action_specs(elem_def, ch_def, ext_or_int):
 
-    in_reprs = [
-        elem_def["pvid_to_repr_map"][ext_or_int][pvid]
-        for pvid in ch_def["pvs"][ext_or_int]
-    ]
-    out_reprs = ch_def["reprs"]
+    in_reprs = get_reprs(elem_def, ext_or_int, ch_def[ext_or_int]["get"]["input_pvs"])
+    out_reprs = ch_def["HiLv_reprs"]
     unitconv = get_unitconv(elem_def, in_reprs, out_reprs)
 
     get_spec = PamilaDeviceActionSpec(
@@ -388,6 +340,7 @@ def get_standard_RB_pdev_spec(
     elem_name_pvid_to_pvinfo,
     elem_name,
     simulator_interface_path,
+    control_system: Literal["epics", "tango"],
 ):
 
     pdev_name, LoLv_psig_name = create_pdev_psig_names(mlv_name, machine_mode)
@@ -403,6 +356,7 @@ def get_standard_RB_pdev_spec(
         elem_name_pvid_to_pvinfo,
         elem_name,
         simulator_interface_path,
+        control_system,
     )
 
     ext_or_int = get_ext_or_int(machine_mode)
@@ -422,19 +376,20 @@ def get_standard_RB_pdev_spec(
 
 def _get_MIMO_RB_components(
     machine_mode: MachineMode,
-    LoLv_psig_name: str,
+    psig_name_prefix: str,
     elem_def,
     ch_def,
     elem_name_pvid_to_pvinfo,
     elem_name,
     simulator_interface_path,
+    control_system: Literal["epics", "tango"],
 ):
 
     assert ch_def["handle"] == "RB"
 
-    match get_ext_or_int(machine_mode):
+    match ext_or_int := get_ext_or_int(machine_mode):
         case "ext":
-            LoLv_sig_class = ExternalPamilaSignalRO
+            LoLv_sig_class = ExternalPamilaSignals[control_system]["SignalRO"]
             LoLv_cpt_kwargs = {}
         case "int":
             LoLv_sig_class = InternalPamilaSignalRO
@@ -442,52 +397,34 @@ def _get_MIMO_RB_components(
         case _:
             raise ValueError
 
-    input_pv_units = get_pvunits(
-        ch_def, elem_name_pvid_to_pvinfo, elem_name, machine_mode
-    )
+    _pvnames = get_pvnames(ch_def, elem_name_pvid_to_pvinfo, elem_name, machine_mode)
+    input_pvnames = _pvnames["get"]
 
-    out_reprs = ch_def["reprs"]
+    _pv_units = get_pvunits(ch_def, elem_name_pvid_to_pvinfo, elem_name, machine_mode)
+    input_pv_units = _pv_units["get"]
+
+    components = {}
+    assert len(input_pvnames) == len(input_pv_units)
+    for i, (LoLv_pvname, LoLv_pv_unit) in enumerate(zip(input_pvnames, input_pv_units)):
+        components[f"LoLv_RB_get_input_{i}"] = Cpt(
+            LoLv_sig_class,
+            LoLv_pvname,
+            mode=machine_mode,
+            name=f"{psig_name_prefix}_get_input_{i}",  # signal name
+            unit=LoLv_pv_unit,
+            **LoLv_cpt_kwargs,
+        )
+
+    out_reprs = ch_def["HiLv_reprs"]
 
     # High-level or user-level units
     mlv_units = [elem_def["repr_units"][_repr] for _repr in out_reprs]
-
-    input_pvnames = get_pvnames(
-        ch_def, elem_name_pvid_to_pvinfo, elem_name, machine_mode
-    )
-
-    components = {}
-
-    for i, (LoLv_pvname, LoLv_pv_unit) in enumerate(zip(input_pvnames, input_pv_units)):
-        components[f"LoLv_RB_{i}"] = Cpt(
-            LoLv_sig_class,
-            LoLv_pvname,
-            mode=machine_mode,
-            name=f"{LoLv_psig_name}_{i}",  # signal name
-            unit=LoLv_pv_unit,
-            **LoLv_cpt_kwargs,
-        )
-
-    aux_input_pvnames, aux_input_pvunits = get_aux_input_pvnames_pvunits(
-        ch_def, elem_name_pvid_to_pvinfo, elem_name, machine_mode, "get"
-    )
-
-    for i, (LoLv_pvname, LoLv_pv_unit) in enumerate(
-        zip(aux_input_pvnames, aux_input_pvunits)
-    ):
-        components[f"LoLv_aux_get_input_{i}"] = Cpt(
-            LoLv_sig_class,
-            LoLv_pvname,
-            mode=machine_mode,
-            name=f"{LoLv_psig_name}_aux_get_input_{i}",  # signal name
-            unit=LoLv_pv_unit,
-            **LoLv_cpt_kwargs,
-        )
 
     for i, mlv_unit in enumerate(mlv_units):
         components[f"RB_get_output_{i}"] = Cpt(
             UserPamilaSignal,
             mode=machine_mode,
-            name=f"{LoLv_psig_name}_get_output_{i}",
+            name=f"{psig_name_prefix}_get_output_{i}",
             unit=mlv_unit,
         )
 
@@ -496,53 +433,24 @@ def _get_MIMO_RB_components(
 
 def _get_MIMO_RB_pdev_action_specs(elem_def, ch_def, ext_or_int, components_keys):
 
-    # LoLv reprs
-    in_reprs = [
-        elem_def["pvid_to_repr_map"][ext_or_int][pvid]
-        for pvid in ch_def["pvs"][ext_or_int]
-    ]
+    HiLv_reprs = ch_def["HiLv_reprs"]
 
-    # HiLv reprs
-    out_reprs = ch_def["reprs"]
+    ch_pvs = ch_def[ext_or_int]
 
-    aux_input_pvids = {}
-    if "aux_input_pvs" in ch_def:
-        try:
-            aux_input_pvids["get"] = ch_def["aux_input_pvs"]["get"][ext_or_int]
-        except KeyError:
-            aux_input_pvids["get"] = []
-
-    aux_in_reprs = dict(
-        get=[
-            elem_def["pvid_to_repr_map"][ext_or_int][pvid]
-            for pvid in aux_input_pvids["get"]
-        ]
-    )
-
-    if "func_tags" in ch_def:
-        func_tags = dict(get=ch_def["func_tags"].get("get", "default"))
-    else:
-        func_tags = dict(get="default")
-
-    unitconv = get_unitconv(
-        elem_def,
-        in_reprs,
-        out_reprs,
-        aux_in_reprs=aux_in_reprs["get"],
-        func_tag=func_tags["get"],
-    )
+    in_reprs = get_reprs(elem_def, ext_or_int, ch_pvs["get"]["input_pvs"])
+    # There should be no "aux_input" for "get"
+    out_reprs = HiLv_reprs
 
     get_spec = PamilaDeviceActionSpec(
         input_cpt_attr_names=[
-            k for k in components_keys if re.match("^LoLv_RB_\d+$", k)
+            k for k in components_keys if re.match("^LoLv_RB_get_input_\d+$", k)
         ],
         output_cpt_attr_names=[
             k for k in components_keys if re.match("^RB_get_output_\d+$", k)
         ],
-        aux_input_cpt_attr_names=[
-            k for k in components_keys if re.match("^LoLv_aux_get_input_\d+$", k)
-        ],
-        unitconv=unitconv,
+        unitconv=get_unitconv(
+            elem_def, in_reprs, out_reprs, func_tag=get_func_tag(ch_def, "get")
+        ),
     )
 
     specs = dict(get=get_spec)
@@ -559,18 +467,20 @@ def get_MIMO_RB_pdev_spec(
     elem_name_pvid_to_pvinfo,
     elem_name,
     simulator_interface_path,
+    control_system: Literal["epics", "tango"],
 ):
 
-    pdev_name, LoLv_psig_name = create_pdev_psig_names(mlv_name, machine_mode)
+    pdev_name, psig_name_prefix = create_pdev_psig_names(mlv_name, machine_mode)
 
     components = _get_MIMO_RB_components(
         machine_mode,
-        LoLv_psig_name,
+        psig_name_prefix,
         elem_def,
         ch_def,
         elem_name_pvid_to_pvinfo,
         elem_name,
         simulator_interface_path,
+        control_system,
     )
 
     ext_or_int = get_ext_or_int(machine_mode)
@@ -599,12 +509,13 @@ def _get_standard_SP_components(
     elem_name,
     simulator_interface_path,
     mode_pdev_def,
+    control_system: Literal["epics", "tango"],
 ):
     assert ch_def["handle"] == "SP"
 
     match get_ext_or_int(machine_mode):
         case "ext":
-            LoLv_sig_class = ExternalPamilaSignal
+            LoLv_sig_class = ExternalPamilaSignals[control_system]["Signal"]
             LoLv_cpt_kwargs = {}
         case "int":
             LoLv_sig_class = InternalPamilaSignal
@@ -612,17 +523,23 @@ def _get_standard_SP_components(
         case _:
             raise ValueError
 
-    _LoLv_pv_units = get_pvunits(
+    _LoLv_pv_units_d = get_pvunits(
         ch_def, elem_name_pvid_to_pvinfo, elem_name, machine_mode
     )
+    assert _LoLv_pv_units_d["get"] == _LoLv_pv_units_d["put"]
+    _LoLv_pv_units = _LoLv_pv_units_d["get"]
     assert len(_LoLv_pv_units) == 1
     LoLv_pv_unit = _LoLv_pv_units[0]
-    # ^ Note that "LoLv_pv_unit == elem_def['repr_units'][in_reprs[0]]" may NOT
-    # necessarily hold. But their dimension must be the same.
-    out_reprs = ch_def["reprs"]
+
+    out_reprs = ch_def["HiLv_reprs"]
+    assert len(out_reprs) == 1
     mlv_unit = elem_def["repr_units"][out_reprs[0]]
 
-    _SP_pvnames = get_pvnames(ch_def, elem_name_pvid_to_pvinfo, elem_name, machine_mode)
+    _SP_pvnames_d = get_pvnames(
+        ch_def, elem_name_pvid_to_pvinfo, elem_name, machine_mode
+    )
+    assert _SP_pvnames_d["get"] == _SP_pvnames_d["put"]
+    _SP_pvnames = _SP_pvnames_d["get"]
     assert len(_SP_pvnames) == 1
     SP_pvname = _SP_pvnames[0]
 
@@ -664,6 +581,7 @@ def _get_standard_SP_components(
             elem_name_pvid_to_pvinfo,
             elem_name,
             simulator_interface_path,
+            control_system,
         )
 
         components["RB_LoLv"] = RB_components["RB_LoLv"]
@@ -674,11 +592,8 @@ def _get_standard_SP_components(
 
 def _get_standard_SP_pdev_action_specs(elem_def, ch_def, ext_or_int, mode_pdev_def):
 
-    LoLv_reprs = [
-        elem_def["pvid_to_repr_map"][ext_or_int][pvid]
-        for pvid in ch_def["pvs"][ext_or_int]
-    ]
-    HiLv_reprs = ch_def["reprs"]
+    LoLv_reprs = get_reprs(elem_def, ext_or_int, ch_def[ext_or_int]["get"]["input_pvs"])
+    HiLv_reprs = ch_def["HiLv_reprs"]
 
     in_reprs = LoLv_reprs
     out_reprs = HiLv_reprs
@@ -690,6 +605,11 @@ def _get_standard_SP_pdev_action_specs(elem_def, ch_def, ext_or_int, mode_pdev_d
     )
 
     in_reprs = HiLv_reprs
+    put_LoLv_reprs = get_reprs(
+        elem_def, ext_or_int, ch_def[ext_or_int]["put"]["output_pvs"]
+    )
+    assert LoLv_reprs == put_LoLv_reprs
+
     out_reprs = LoLv_reprs
 
     put_spec = PamilaDeviceActionSpec(
@@ -704,11 +624,10 @@ def _get_standard_SP_pdev_action_specs(elem_def, ch_def, ext_or_int, mode_pdev_d
     if SP_RB_diff:
         RB_ch_def = elem_def["channel_map"][SP_RB_diff["RB_channel"]]
 
-        LoLv_reprs = [
-            elem_def["pvid_to_repr_map"][ext_or_int][pvid]
-            for pvid in RB_ch_def["pvs"][ext_or_int]
-        ]
-        HiLv_reprs = RB_ch_def["reprs"]
+        LoLv_reprs = get_reprs(
+            elem_def, ext_or_int, RB_ch_def[ext_or_int]["get"]["input_pvs"]
+        )
+        HiLv_reprs = RB_ch_def["HiLv_reprs"]
 
         in_reprs = LoLv_reprs
         out_reprs = HiLv_reprs
@@ -732,6 +651,7 @@ def get_standard_SP_pdev_spec(
     elem_name,
     simulator_interface_path,
     mode_pdev_def,
+    control_system: Literal["epics", "tango"],
 ):
 
     pdev_name, LoLv_psig_name = create_pdev_psig_names(mlv_name, machine_mode)
@@ -745,6 +665,7 @@ def get_standard_SP_pdev_spec(
         elem_name,
         simulator_interface_path,
         mode_pdev_def,
+        control_system,
     )
 
     ext_or_int = get_ext_or_int(machine_mode)
@@ -786,19 +707,20 @@ def get_standard_SP_pdev_spec(
 
 def _get_MIMO_SP_components(
     machine_mode: MachineMode,
-    LoLv_psig_name: str,
+    psig_name_prefix: str,
     elem_def,
     ch_def,
     elem_name_pvid_to_pvinfo,
     elem_name,
     simulator_interface_path,
     mode_pdev_def,
+    control_system: Literal["epics", "tango"],
 ):
     assert ch_def["handle"] == "SP"
 
-    match get_ext_or_int(machine_mode):
+    match ext_or_int := get_ext_or_int(machine_mode):
         case "ext":
-            LoLv_sig_class = ExternalPamilaSignal
+            LoLv_sig_class = ExternalPamilaSignals[control_system]["Signal"]
             LoLv_cpt_kwargs = {}
         case "int":
             LoLv_sig_class = InternalPamilaSignal
@@ -806,71 +728,40 @@ def _get_MIMO_SP_components(
         case _:
             raise ValueError
 
-    input_SP_pv_units = get_pvunits(
+    _SP_pvnames = get_pvnames(ch_def, elem_name_pvid_to_pvinfo, elem_name, machine_mode)
+    SP_get_input_pvnames = _SP_pvnames["get"]
+    SP_put_output_pvnames = _SP_pvnames["put"]
+
+    _SP_pv_units = get_pvunits(
         ch_def, elem_name_pvid_to_pvinfo, elem_name, machine_mode
     )
+    SP_get_input_pvunits = _SP_pv_units["get"]
+    SP_put_output_pvunits = _SP_pv_units["put"]
 
-    out_reprs = ch_def["reprs"]
+    components = {}
+    assert len(SP_get_input_pvnames) == len(SP_get_input_pvunits)
+    for i, (LoLv_pvname, LoLv_pv_unit) in enumerate(
+        zip(SP_get_input_pvnames, SP_get_input_pvunits)
+    ):
+        components[f"LoLv_SP_get_input_{i}"] = Cpt(
+            LoLv_sig_class,
+            LoLv_pvname,
+            mode=machine_mode,
+            name=f"{psig_name_prefix}_get_input_{i}",  # signal name
+            unit=LoLv_pv_unit,
+            **LoLv_cpt_kwargs,
+        )
+
+    out_reprs = ch_def["HiLv_reprs"]
 
     # High-level or user-level units
     mlv_units = [elem_def["repr_units"][_repr] for _repr in out_reprs]
-
-    input_SP_pvnames = get_pvnames(
-        ch_def, elem_name_pvid_to_pvinfo, elem_name, machine_mode
-    )
-
-    components = {}
-
-    for i, (LoLv_pvname, LoLv_pv_unit) in enumerate(
-        zip(input_SP_pvnames, input_SP_pv_units)
-    ):
-        components[f"LoLv_SP_{i}"] = Cpt(
-            LoLv_sig_class,
-            LoLv_pvname,
-            mode=machine_mode,
-            name=f"{LoLv_psig_name}_{i}",  # signal name
-            unit=LoLv_pv_unit,
-            **LoLv_cpt_kwargs,
-        )
-
-    for get_or_put in ("get", "put"):
-
-        aux_input_pvnames, aux_input_pvunits = get_aux_input_pvnames_pvunits(
-            ch_def, elem_name_pvid_to_pvinfo, elem_name, machine_mode, get_or_put
-        )
-
-        for i, (LoLv_pvname, LoLv_pv_unit) in enumerate(
-            zip(aux_input_pvnames, aux_input_pvunits)
-        ):
-            components[f"LoLv_aux_{get_or_put}_input_{i}"] = Cpt(
-                LoLv_sig_class,
-                LoLv_pvname,
-                mode=machine_mode,
-                name=f"{LoLv_psig_name}_aux_{get_or_put}_input_{i}",  # signal name
-                unit=LoLv_pv_unit,
-                **LoLv_cpt_kwargs,
-            )
-
-    aux_output_pvnames, aux_output_pvunits = get_aux_output_pvnames_pvunits(
-        ch_def, elem_name_pvid_to_pvinfo, elem_name, machine_mode
-    )
-    for i, (LoLv_pvname, LoLv_pv_unit) in enumerate(
-        zip(aux_output_pvnames, aux_output_pvunits)
-    ):
-        components[f"LoLv_aux_put_output_{i}"] = Cpt(
-            LoLv_sig_class,
-            LoLv_pvname,
-            mode=machine_mode,
-            name=f"{LoLv_psig_name}_aux_put_output_{i}",  # signal name
-            unit=LoLv_pv_unit,
-            **LoLv_cpt_kwargs,
-        )
 
     for i, mlv_unit in enumerate(mlv_units):
         components[f"SP_get_output_{i}"] = Cpt(
             UserPamilaSignal,
             mode=machine_mode,
-            name=f"{LoLv_psig_name}_get_output_{i}",
+            name=f"{psig_name_prefix}_get_output_{i}",
             unit=mlv_unit,
         )
 
@@ -878,15 +769,43 @@ def _get_MIMO_SP_components(
         components[f"SP_put_input_{i}"] = Cpt(
             UserPamilaSignal,
             mode=machine_mode,
-            name=f"{LoLv_psig_name}_put_input_{i}",
+            name=f"{psig_name_prefix}_put_input_{i}",
             unit=mlv_unit,
+        )
+
+    # Auxiliary input PVs should exist, if any, only for "put" (not for "get")
+    aux_input_pvnames, aux_input_pvunits = get_aux_input_pvnames_pvunits(
+        ch_def, elem_name_pvid_to_pvinfo, elem_name, machine_mode, ext_or_int
+    )
+    for i, (LoLv_pvname, LoLv_pv_unit) in enumerate(
+        zip(aux_input_pvnames, aux_input_pvunits)
+    ):
+        components[f"LoLv_SP_put_aux_input_{i}"] = Cpt(
+            LoLv_sig_class,
+            LoLv_pvname,
+            mode=machine_mode,
+            name=f"{psig_name_prefix}_put_aux_input_{i}",  # signal name
+            unit=LoLv_pv_unit,
+            **LoLv_cpt_kwargs,
+        )
+
+    for i, (LoLv_pvname, LoLv_pv_unit) in enumerate(
+        zip(SP_put_output_pvnames, SP_put_output_pvunits)
+    ):
+        components[f"LoLv_SP_put_output_{i}"] = Cpt(
+            LoLv_sig_class,
+            LoLv_pvname,
+            mode=machine_mode,
+            name=f"{psig_name_prefix}_put_output_{i}",  # signal name
+            unit=LoLv_pv_unit,
+            **LoLv_cpt_kwargs,
         )
 
     SP_RB_diff = mode_pdev_def.get("SP_RB_diff", {})
 
     if SP_RB_diff:
         RB_ch_def = elem_def["channel_map"][SP_RB_diff["RB_channel"]]
-        RB_LoLv_psig_name = f"{LoLv_psig_name}_RB"
+        RB_LoLv_psig_name = f"{psig_name_prefix}_RB"
         RB_HiLv_psig_name = f"{RB_LoLv_psig_name}_HiLv"
         RB_components = _get_MIMO_RB_components(
             machine_mode,
@@ -905,112 +824,58 @@ def _get_MIMO_SP_components(
     return components
 
 
+def get_func_tag(ch_def, get_or_put: Literal["get", "put"]):
+    if "func_tags" in ch_def:
+        return ch_def["func_tags"].get(get_or_put, "default")
+    else:
+        return "default"
+
+
 def _get_MIMO_SP_pdev_action_specs(
     elem_def, ch_def, ext_or_int, components_keys, mode_pdev_def
 ):
 
-    LoLv_reprs = [
-        elem_def["pvid_to_repr_map"][ext_or_int][pvid]
-        for pvid in ch_def["pvs"][ext_or_int]
-    ]
-    HiLv_reprs = ch_def["reprs"]
+    HiLv_reprs = ch_def["HiLv_reprs"]
 
-    if "aux_input_pvs" in ch_def:
-        aux_input_pvids = {}
+    ch_pvs = ch_def[ext_or_int]
 
-        try:
-            aux_input_pvids["get"] = ch_def["aux_input_pvs"]["get"][ext_or_int]
-        except KeyError:
-            aux_input_pvids["get"] = []
-
-        try:
-            aux_input_pvids["put"] = ch_def["aux_input_pvs"]["put"][ext_or_int]
-        except KeyError:
-            aux_input_pvids["put"] = []
-    else:
-        aux_input_pvids = dict(get=[], put=[])
-
-    aux_in_reprs = dict(
-        get=[
-            elem_def["pvid_to_repr_map"][ext_or_int][pvid]
-            for pvid in aux_input_pvids["get"]
-        ],
-        put=[
-            elem_def["pvid_to_repr_map"][ext_or_int][pvid]
-            for pvid in aux_input_pvids["put"]
-        ],
+    in_reprs = get_reprs(elem_def, ext_or_int, ch_pvs["get"]["input_pvs"])
+    aux_in_reprs = get_reprs(
+        elem_def, ext_or_int, ch_pvs["get"].get("aux_input_pvs", [])
     )
-
-    if "aux_output_pvs" in ch_def:
-        aux_output_pvids = {}
-
-        try:
-            aux_output_pvids["put"] = ch_def["aux_output_pvs"]["put"][ext_or_int]
-        except KeyError:
-            aux_output_pvids["put"] = []
-    else:
-        aux_output_pvids = dict(put=[])
-
-    aux_out_reprs = dict(
-        put=[
-            elem_def["pvid_to_repr_map"][ext_or_int][pvid]
-            for pvid in aux_output_pvids["put"]
-        ],
-    )
-
-    if "func_tags" in ch_def:
-        func_tags = dict(
-            get=ch_def["func_tags"].get("get", "default"),
-            put=ch_def["func_tags"].get("put", "default"),
-        )
-    else:
-        func_tags = dict(get="default", put="default")
-
-    in_reprs = LoLv_reprs
+    assert aux_in_reprs == []  # There should be no "aux_input" for "get"
     out_reprs = HiLv_reprs
 
     get_spec = PamilaDeviceActionSpec(
         input_cpt_attr_names=[
-            k for k in components_keys if re.match("^LoLv_SP_\d+$", k)
+            k for k in components_keys if re.match("^LoLv_SP_get_input_\d+$", k)
         ],
         output_cpt_attr_names=[
             k for k in components_keys if re.match("^SP_get_output_\d+$", k)
         ],
-        aux_input_cpt_attr_names=[
-            k for k in components_keys if re.match("^LoLv_aux_get_input_\d+$", k)
-        ],
         unitconv=get_unitconv(
-            elem_def,
-            in_reprs,
-            out_reprs,
-            aux_in_reprs=aux_in_reprs["get"],
-            func_tag=func_tags["get"],
+            elem_def, in_reprs, out_reprs, func_tag=get_func_tag(ch_def, "get")
         ),
     )
 
-    in_reprs = HiLv_reprs
-    out_reprs = LoLv_reprs
+    aux_in_reprs = get_reprs(
+        elem_def, ext_or_int, ch_pvs["put"].get("aux_input_pvs", [])
+    )
+    in_reprs = HiLv_reprs + aux_in_reprs
+    out_reprs = get_reprs(elem_def, ext_or_int, ch_pvs["put"]["output_pvs"])
 
     put_spec = PamilaDeviceActionSpec(
         input_cpt_attr_names=[
             k for k in components_keys if re.match("^SP_put_input_\d+$", k)
         ],
-        output_cpt_attr_names=[
-            k for k in components_keys if re.match("^LoLv_SP_\d+$", k)
-        ],
         aux_input_cpt_attr_names=[
-            k for k in components_keys if re.match("^LoLv_aux_put_input_\d+$", k)
+            k for k in components_keys if re.match("^LoLv_SP_put_aux_input_\d+$", k)
         ],
-        aux_output_cpt_attr_names=[
-            k for k in components_keys if re.match("^LoLv_aux_put_output_\d+$", k)
+        output_cpt_attr_names=[
+            k for k in components_keys if re.match("^LoLv_SP_put_output_\d+$", k)
         ],
         unitconv=get_unitconv(
-            elem_def,
-            in_reprs,
-            out_reprs,
-            aux_in_reprs=aux_in_reprs["put"],
-            aux_out_reprs=aux_out_reprs["put"],
-            func_tag=func_tags["put"],
+            elem_def, in_reprs, out_reprs, func_tag=get_func_tag(ch_def, "put")
         ),
     )
 
@@ -1020,23 +885,20 @@ def _get_MIMO_SP_pdev_action_specs(
     if SP_RB_diff:
         RB_ch_def = elem_def["channel_map"][SP_RB_diff["RB_channel"]]
 
-        LoLv_reprs = [
-            elem_def["pvid_to_repr_map"][ext_or_int][pvid]
-            for pvid in RB_ch_def["pvs"][ext_or_int]
-        ]
-        HiLv_reprs = RB_ch_def["reprs"]
+        RB_ch_pvs = RB_ch_def[ext_or_int]
 
-        in_reprs = LoLv_reprs
-        out_reprs = HiLv_reprs
-
-        aux_in_reprs = []  # TO-IMPLEMENT
-        func_tag = "default"  # TO-IMPLEMENT
+        in_reprs = get_reprs(elem_def, ext_or_int, RB_ch_pvs["get"]["input_pvs"])
+        aux_in_reprs = get_reprs(
+            elem_def, ext_or_int, RB_ch_pvs["get"].get("aux_input_pvs", [])
+        )
+        assert aux_in_reprs == []  # There should be no "aux_input" for "get"
+        out_reprs = RB_ch_def["HiLv_reprs"]
 
         specs["readback_in_set"] = PamilaDeviceActionSpec(
             input_cpt_attr_names=["RB_LoLv"],
             output_cpt_attr_names=["RB"],
             unitconv=get_unitconv(
-                elem_def, in_reprs, out_reprs, aux_in_reprs, func_tag=func_tag
+                elem_def, in_reprs, out_reprs, func_tag=get_func_tag(RB_ch_def, "get")
             ),
         )
 
@@ -1053,19 +915,21 @@ def get_MIMO_SP_pdev_spec(
     elem_name,
     simulator_interface_path,
     mode_pdev_def,
+    control_system: Literal["epics", "tango"],
 ):
 
-    pdev_name, LoLv_psig_name = create_pdev_psig_names(mlv_name, machine_mode)
+    pdev_name, psig_name_prefix = create_pdev_psig_names(mlv_name, machine_mode)
 
     components = _get_MIMO_SP_components(
         machine_mode,
-        LoLv_psig_name,
+        psig_name_prefix,
         elem_def,
         ch_def,
         elem_name_pvid_to_pvinfo,
         elem_name,
         simulator_interface_path,
         mode_pdev_def,
+        control_system,
     )
 
     ext_or_int = get_ext_or_int(machine_mode)
@@ -1106,20 +970,36 @@ def get_MIMO_SP_pdev_spec(
 
 
 class MachineConfig:
-    def __init__(self, machine_name: str, dirpath: Path):
+    def __init__(self, machine_name: str, dirpath: Path, model_name: str = ""):
 
         self.dirpath = dirpath
         self.machine_name = machine_name
 
         machine_folder = dirpath / machine_name
 
-        self.sim_configs = yaml.safe_load(
+        sim_configs_yaml_d = yaml.safe_load(
             (machine_folder / "sim_configs.yaml").read_text()
         )
-        self.sel_config = self.sim_configs["selected_config"]
-        self.sim_conf_d = self.sim_configs["simulator_configs"][self.sel_config]
+        sim_configs_d = sim_configs_yaml_d["simulator_configs"]
+        for k, v in sim_configs_d.items():
+            if v is None:
+                continue
+            match v["package_name"]:
+                case "pyat":
+                    sim_configs_d[k] = PyATInterfaceSpec(**v)
+                case _:
+                    raise NotImplementedError
 
-        self.config_folder = machine_folder / self.sel_config
+        self.sim_configs = SimConfigs(**sim_configs_yaml_d)
+        self.sel_config_name = self.sim_configs.selected_config
+        self.sim_conf = self.sim_configs.simulator_configs[self.sel_config_name]
+
+        if model_name:
+            self._lattice_model_name = model_name
+        else:
+            self._lattice_model_name = self.sim_conf.default_lattice_model
+
+        self.config_folder = machine_folder / self.sel_config_name
 
         self._load_device_conversion_plugins()
 
@@ -1152,11 +1032,11 @@ class MachineConfig:
 
     def _load_device_conversion_plugins(self):
 
-        if "conversion_plugin_folder" in self.sim_configs:
-            load_plugins(Path(self.sim_configs["conversion_plugin_folder"]))
+        if self.sim_configs.conversion_plugin_folder:
+            load_plugins(Path(self.sim_configs.conversion_plugin_folder))
 
-        if "conversion_plugin_folder" in self.sim_conf_d:
-            load_plugins(Path(self.sim_conf_d["conversion_plugin_folder"]))
+        if self.sim_conf.conversion_plugin_folder:
+            load_plugins(Path(self.sim_conf.conversion_plugin_folder))
 
     def _load_definitions_from_files(self):
         self.sim_pv_defs = json.loads((self.config_folder / "sim_pvs.json").read_text())
@@ -1212,23 +1092,23 @@ class MachineConfig:
 
         for pvsuffix, d in simpv_elem_maps.items():
 
-            k = (d["elem_name"], d["pvid_in_elem"])
-            assert k not in elem_name_pvid_to_pvinfo
-            elem_name_pvid_to_pvinfo[k] = {
-                "handles": d["handles"],
-                "pvsuffix": pvsuffix,
-                "pvunit": d["pvunit"],
-            }
+            for elem_name in d["elem_names"]:
+                k = (elem_name, d["pvid_in_elem"])
+                assert k not in elem_name_pvid_to_pvinfo
+                elem_name_pvid_to_pvinfo[k] = {
+                    "handle": d["handle"],
+                    "pvsuffix": pvsuffix,
+                    "pvunit": d["pvunit"],
+                }
 
     def _load_lattice_design_props_from_files(self):
 
-        self.design_lat_props = json.loads(
-            (self.config_folder / "design_props.json").read_text()
-        )
+        folder = self.config_folder / self._lattice_model_name
+        self.design_lat_props = json.loads((folder / "design_props.json").read_text())
 
     def _set_sim_interface_spec(self):
 
-        match self.sim_conf_d["package_name"]:
+        match self.sim_conf.package_name:
             case "pyat":
                 sim_pv_defs = {}
                 for d in self.sim_pv_defs["sim_pv_definitions"]:
@@ -1237,9 +1117,10 @@ class MachineConfig:
                     sim_pv_defs[pvsuffix] = SimulatorPvDefinition(
                         **{k: v for k, v in d.items() if k != "pvsuffix"}
                     )
-                self.sim_itf_spec = PyATInterfaceSpec(
-                    sim_pv_defs=sim_pv_defs, **self.sim_conf_d
-                )
+                self.sim_configs
+                sim_conf_d = self.sim_conf.model_dump()
+                sim_conf_d["sim_pv_defs"] = sim_pv_defs
+                self.sim_itf_spec = PyATInterfaceSpec(**sim_conf_d)
             case "no_simulator":
                 self.sim_itf_spec = None
             case _:
@@ -1304,19 +1185,19 @@ class MachineConfig:
 
             pdev_specs = {}
 
-            for machine_mode in get_defined_machine_modes(
-                ch_def, elem_name_pvid_to_pvinfo, elem_name
-            ):
+            for machine_mode_value, orig_mode_pdev_def in pdev_def.items():
+                machine_mode = MachineMode(machine_mode_value)
 
                 if get_ext_or_int(machine_mode) == "int":
                     sim_itf_path = self._get_sim_interface_path(machine_mode)
                 else:
                     sim_itf_path = None
 
-                mode_pdev_def = deepcopy(pdev_def.get(machine_mode.value, {}))
-                mode_pdev_def_type = mode_pdev_def.pop("type", "standard_RB")
+                mode_pdev_def = deepcopy(orig_mode_pdev_def)
 
                 if read_only:
+                    mode_pdev_def_type = mode_pdev_def.pop("type", "standard_RB")
+
                     match mode_pdev_def_type:
                         case "standard_RB":
                             pdev_spec = get_standard_RB_pdev_spec(
@@ -1328,6 +1209,7 @@ class MachineConfig:
                                 elem_name_pvid_to_pvinfo,
                                 elem_name,
                                 sim_itf_path,
+                                self.sim_configs.control_system,
                             )
                         case "plugin":
                             raise NotImplementedError
@@ -1341,14 +1223,24 @@ class MachineConfig:
                                 elem_name_pvid_to_pvinfo,
                                 elem_name,
                                 sim_itf_path,
+                                self.sim_configs.control_system,
                             )
 
                         case _:
                             raise NotImplementedError
 
                 else:
+                    mode_pdev_def_type = mode_pdev_def.get("type", "standard_SP")
+
                     match mode_pdev_def_type:
+
                         case "standard_SP":
+                            _mode_pdev_def = json.loads(
+                                StandardSetpointDeviceDefinition(
+                                    **mode_pdev_def
+                                ).model_dump_json()
+                            )
+                            _mode_pdev_def.pop("type")
                             pdev_spec = get_standard_SP_pdev_spec(
                                 mlv_name,
                                 self.machine_name,
@@ -1358,9 +1250,16 @@ class MachineConfig:
                                 elem_name_pvid_to_pvinfo,
                                 elem_name,
                                 sim_itf_path,
-                                mode_pdev_def,
+                                _mode_pdev_def,
+                                self.sim_configs.control_system,
                             )
                         case "standard_MIMO_SP":
+                            _mode_pdev_def = json.loads(
+                                StandardSetpointDeviceDefinition(
+                                    **mode_pdev_def
+                                ).model_dump_json()
+                            )
+                            _mode_pdev_def.pop("type")
                             pdev_spec = get_MIMO_SP_pdev_spec(
                                 mlv_name,
                                 self.machine_name,
@@ -1370,7 +1269,8 @@ class MachineConfig:
                                 elem_name_pvid_to_pvinfo,
                                 elem_name,
                                 sim_itf_path,
-                                mode_pdev_def,
+                                _mode_pdev_def,
+                                self.sim_configs.control_system,
                             )
 
                         case _:
@@ -1381,7 +1281,7 @@ class MachineConfig:
             mlv_spec = MiddleLayerVariableSpec(
                 name=mlv_name,
                 machine_name=self.machine_name,
-                simulator_config=self.sel_config,
+                simulator_config=self.sel_config_name,
                 pdev_spec_dict=pdev_specs,
                 exist_ok=exist_ok,
             )

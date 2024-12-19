@@ -106,8 +106,8 @@ class Interface:
             case "CorrectorSimPV":
                 sel_class = CorrectorSimPV
                 args = [pv_def.args[0], getattr(IntegerPlane, pv_def.args[1])]
-            case "BPMSimPV":
-                sel_class = BPMSimPV
+            case "BPMSlowAcqSimPV":
+                sel_class = BPMSlowAcqSimPV
                 args = [pv_def.args[0], getattr(StringPlane, pv_def.args[1])]
             case "QuadrupoleSimPV":
                 sel_class = QuadrupoleSimPV
@@ -122,6 +122,8 @@ class Interface:
                 args = [getattr(StringPlane, pv_def.args[0])]
             case "FakeInsertionDeviceGapSimPV":
                 sel_class = FakeInsertionDeviceGapSimPV
+            case "FakeInsertionDeviceGapSimPVRO":
+                sel_class = FakeInsertionDeviceGapSimPVRO
             case _:
                 raise NotImplementedError
         self._sim_pvs[sim_pvname] = sel_class(self, sim_pvname, *args, **kwargs)
@@ -378,7 +380,7 @@ class SextupoleSimPV(AbstractQuadSextSimPV):
         self._setter = ChainedPropertyPusher(self._element, access_list).put
 
 
-class BPMSimPV(SimPVRO):
+class BPMSlowAcqSimPV(SimPVRO):
     def __init__(
         self, sim_itf: Interface, sim_pvname: str, uint32_index: int, plane: StringPlane
     ):
@@ -458,3 +460,24 @@ class FakeInsertionDeviceGapSimPV(SimPV):
 
         self._getter = ChainedPropertyFetcher(storage, access_list).get
         self._setter = ChainedPropertyPusher(storage, access_list).put
+
+
+class FakeInsertionDeviceGapSimPVRO(SimPVRO):
+    def __init__(self, sim_itf: Interface, sim_pvname: str, setpoint_sim_pvsuffix: str):
+        """Readback PV for a FakeInsertionDeviceGapSimPV"""
+
+        recalcs_before_get = []
+
+        units = "m"
+
+        super().__init__(
+            sim_itf, sim_pvname, units=units, recalcs_before_get=recalcs_before_get
+        )
+
+        storage = self._interface._vars_outside_pyat
+
+        sim_pvprefix = get_sim_pvprefix(self._interface._machine_mode)
+        setpoint_sim_pvname = sim_pvprefix + setpoint_sim_pvsuffix
+        access_list = [KIA(setpoint_sim_pvname)]
+
+        self._getter = ChainedPropertyFetcher(storage, access_list).get

@@ -39,10 +39,11 @@ _MACHINES = {}
 class Machine:
     """ """
 
-    def __init__(self, machine_name: str, dirpath: Path):
+    def __init__(self, machine_name: str, dirpath: Path, model_name: str = ""):
         self.name = machine_name
 
-        self._conf = MachineConfig(machine_name, dirpath)
+        self._conf = MachineConfig(machine_name, dirpath, model_name=model_name)
+        self._control_system = self._conf.sim_configs.control_system
 
     def get_sim_interface(self):
         # self = _MACHINES[machine_name]
@@ -211,7 +212,9 @@ def get_machine(machine_name: str):
     return _MACHINES[machine_name]
 
 
-def load_machine(machine_name: str, dirpath: str | Path | None = None):
+def load_machine(
+    machine_name: str, dirpath: str | Path | None = None, model_name: str = ""
+):
 
     if dirpath is None:
         raise NotImplementedError
@@ -220,7 +223,7 @@ def load_machine(machine_name: str, dirpath: str | Path | None = None):
     get_all_mlvls(machine_name).clear()
     get_all_mlvts(machine_name).clear()
 
-    machine = Machine(machine_name, dirpath)
+    machine = Machine(machine_name, dirpath, model_name=model_name)
 
     machine._construct_mlvls()
     machine._construct_mlvts()
