@@ -313,7 +313,6 @@ SR.add_to_simpv_elem_maps(
 # Now specify all the MLVs for the ID element
 
 new_elem_def = dict(
-    name="ID23d",
     pvid_to_repr_map={
         "ext": {
             "extpv_I1_SP": "I1",
@@ -911,3 +910,17 @@ SR.construct_mlvs_for_one_element("ID23d", exist_ok=True)
 # %%
 # Now repeat the same test sequence, but this time all the tests should pass.
 test_sequence(all_mlvs, last_test_fail_ok=False)
+
+# %%
+# We can see how the `elements.ymal` file would look like after adding the
+# MIMO example.
+with open(examples_folder / "demo_generated/elements_w_MIMO.yaml", "w") as f:
+    yaml.dump(
+        SR._conf.elem_defs,
+        f,
+        sort_keys=False,
+        default_flow_style=False,
+        width=70,
+        indent=2,
+        Dumper=CustomDumper,
+    )
