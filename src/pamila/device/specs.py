@@ -1,5 +1,5 @@
 from functools import partial
-from typing import Any, Callable, Dict, List
+from typing import Any, Callable, Dict, List, Tuple
 
 import numpy as np
 from pydantic import (
@@ -18,6 +18,10 @@ class FunctionSpec(BaseModel):
     name: str
     args: List[Any] = Field(default_factory=list)
     kwargs: Dict[str, Any] = Field(default_factory=dict)
+    description: str = ""
+    input_repr_ranges: Dict[
+        str, Tuple[float | None, float | None] | List[float | None]
+    ] = Field(default_factory=dict)
 
     @field_serializer("args")
     def serialize_numpy_arrays_in_list(self, value):

@@ -80,34 +80,13 @@ def get_unitconv(
     elem_def: Dict,
     in_reprs: List[str],
     out_reprs: List[str],
-    func_tag: str = "default",
+    conv_spec_name: str | None,
 ):
 
-    if in_reprs == out_reprs:
+    if conv_spec_name in (None, "identity"):
         func_spec = dict(name="identity")  # identity unit conversion
     else:
-        func_spec_list = []
-        for _spec in elem_def["func_specs"]:
-            if _spec["in_reprs"] != in_reprs:
-                continue
-            if _spec["out_reprs"] != out_reprs:
-                continue
-            if _spec.get("func_tag", "default") != func_tag:
-                continue
-
-            func_spec_list.append(_spec["func_spec"])
-
-        if func_spec_list == []:
-            err_lines = ["Could not find unit conversion:"]
-            err_lines.append(f"{in_reprs = }")
-            err_lines.append(f"{out_reprs = }")
-            err_lines.append(f"{elem_def = }")
-
-            raise ValueError("\n\n".join(err_lines))
-        elif len(func_spec_list) == 1:
-            func_spec = func_spec_list[0]
-        else:
-            raise ValueError(f"Multiple unit conversion matches: {func_spec_list}")
+        func_spec = elem_def["func_specs"][conv_spec_name]
 
     func_spec_obj = FunctionSpec(**func_spec)
 
@@ -320,7 +299,8 @@ def _get_standard_RB_pdev_action_specs(elem_def, ch_def, ext_or_int):
 
     in_reprs = get_reprs(elem_def, ext_or_int, ch_def[ext_or_int]["get"]["input_pvs"])
     out_reprs = ch_def["HiLv_reprs"]
-    unitconv = get_unitconv(elem_def, in_reprs, out_reprs)
+    conv_spec_name = ch_def[ext_or_int]["get"].get("conv_spec_name", None)
+    unitconv = get_unitconv(elem_def, in_reprs, out_reprs, conv_spec_name)
 
     get_spec = PamilaDeviceActionSpec(
         input_cpt_attr_names=["RB_LoLv"],
@@ -441,6 +421,9 @@ def _get_MIMO_RB_pdev_action_specs(elem_def, ch_def, ext_or_int, components_keys
     # There should be no "aux_input" for "get"
     out_reprs = HiLv_reprs
 
+    conv_spec_name = ch_pvs["get"].get("conv_spec_name", None)
+    unitconv = get_unitconv(elem_def, in_reprs, out_reprs, conv_spec_name)
+
     get_spec = PamilaDeviceActionSpec(
         input_cpt_attr_names=[
             k for k in components_keys if re.match("^LoLv_RB_get_input_\d+$", k)
@@ -448,9 +431,7 @@ def _get_MIMO_RB_pdev_action_specs(elem_def, ch_def, ext_or_int, components_keys
         output_cpt_attr_names=[
             k for k in components_keys if re.match("^RB_get_output_\d+$", k)
         ],
-        unitconv=get_unitconv(
-            elem_def, in_reprs, out_reprs, func_tag=get_func_tag(ch_def, "get")
-        ),
+        unitconv=unitconv,
     )
 
     specs = dict(get=get_spec)
@@ -597,11 +578,13 @@ def _get_standard_SP_pdev_action_specs(elem_def, ch_def, ext_or_int, mode_pdev_d
 
     in_reprs = LoLv_reprs
     out_reprs = HiLv_reprs
+    conv_spec_name = ch_def[ext_or_int]["get"].get("conv_spec_name", None)
+    unitconv = get_unitconv(elem_def, in_reprs, out_reprs, conv_spec_name)
 
     get_spec = PamilaDeviceActionSpec(
         input_cpt_attr_names=["SP_LoLv"],
         output_cpt_attr_names=["SP"],
-        unitconv=get_unitconv(elem_def, in_reprs, out_reprs),
+        unitconv=unitconv,
     )
 
     in_reprs = HiLv_reprs
@@ -612,10 +595,13 @@ def _get_standard_SP_pdev_action_specs(elem_def, ch_def, ext_or_int, mode_pdev_d
 
     out_reprs = LoLv_reprs
 
+    conv_spec_name = ch_def[ext_or_int]["put"].get("conv_spec_name", None)
+    unitconv = get_unitconv(elem_def, in_reprs, out_reprs, conv_spec_name)
+
     put_spec = PamilaDeviceActionSpec(
         input_cpt_attr_names=["SP_put_input"],
         output_cpt_attr_names=["SP_LoLv"],
-        unitconv=get_unitconv(elem_def, in_reprs, out_reprs),
+        unitconv=unitconv,
     )
 
     specs = dict(get=get_spec, put=put_spec)
@@ -631,11 +617,13 @@ def _get_standard_SP_pdev_action_specs(elem_def, ch_def, ext_or_int, mode_pdev_d
 
         in_reprs = LoLv_reprs
         out_reprs = HiLv_reprs
+        conv_spec_name = RB_ch_def[ext_or_int]["get"].get("conv_spec_name", None)
+        unitconv = get_unitconv(elem_def, in_reprs, out_reprs, conv_spec_name)
 
         specs["readback_in_set"] = PamilaDeviceActionSpec(
             input_cpt_attr_names=["RB_LoLv"],
             output_cpt_attr_names=["RB"],
-            unitconv=get_unitconv(elem_def, in_reprs, out_reprs),
+            unitconv=unitconv,
         )
 
     return specs
@@ -824,13 +812,6 @@ def _get_MIMO_SP_components(
     return components
 
 
-def get_func_tag(ch_def, get_or_put: Literal["get", "put"]):
-    if "func_tags" in ch_def:
-        return ch_def["func_tags"].get(get_or_put, "default")
-    else:
-        return "default"
-
-
 def _get_MIMO_SP_pdev_action_specs(
     elem_def, ch_def, ext_or_int, components_keys, mode_pdev_def
 ):
@@ -846,6 +827,9 @@ def _get_MIMO_SP_pdev_action_specs(
     assert aux_in_reprs == []  # There should be no "aux_input" for "get"
     out_reprs = HiLv_reprs
 
+    conv_spec_name = ch_pvs["get"].get("conv_spec_name", None)
+    unitconv = get_unitconv(elem_def, in_reprs, out_reprs, conv_spec_name)
+
     get_spec = PamilaDeviceActionSpec(
         input_cpt_attr_names=[
             k for k in components_keys if re.match("^LoLv_SP_get_input_\d+$", k)
@@ -853,9 +837,7 @@ def _get_MIMO_SP_pdev_action_specs(
         output_cpt_attr_names=[
             k for k in components_keys if re.match("^SP_get_output_\d+$", k)
         ],
-        unitconv=get_unitconv(
-            elem_def, in_reprs, out_reprs, func_tag=get_func_tag(ch_def, "get")
-        ),
+        unitconv=unitconv,
     )
 
     aux_in_reprs = get_reprs(
@@ -863,6 +845,9 @@ def _get_MIMO_SP_pdev_action_specs(
     )
     in_reprs = HiLv_reprs + aux_in_reprs
     out_reprs = get_reprs(elem_def, ext_or_int, ch_pvs["put"]["output_pvs"])
+
+    conv_spec_name = ch_pvs["put"].get("conv_spec_name", None)
+    unitconv = get_unitconv(elem_def, in_reprs, out_reprs, conv_spec_name)
 
     put_spec = PamilaDeviceActionSpec(
         input_cpt_attr_names=[
@@ -874,9 +859,7 @@ def _get_MIMO_SP_pdev_action_specs(
         output_cpt_attr_names=[
             k for k in components_keys if re.match("^LoLv_SP_put_output_\d+$", k)
         ],
-        unitconv=get_unitconv(
-            elem_def, in_reprs, out_reprs, func_tag=get_func_tag(ch_def, "put")
-        ),
+        unitconv=unitconv,
     )
 
     specs = dict(get=get_spec, put=put_spec)
@@ -894,12 +877,13 @@ def _get_MIMO_SP_pdev_action_specs(
         assert aux_in_reprs == []  # There should be no "aux_input" for "get"
         out_reprs = RB_ch_def["HiLv_reprs"]
 
+        conv_spec_name = RB_ch_pvs["get"].get("conv_spec_name", None)
+        unitconv = get_unitconv(elem_def, in_reprs, out_reprs, conv_spec_name)
+
         specs["readback_in_set"] = PamilaDeviceActionSpec(
             input_cpt_attr_names=["RB_LoLv"],
             output_cpt_attr_names=["RB"],
-            unitconv=get_unitconv(
-                elem_def, in_reprs, out_reprs, func_tag=get_func_tag(RB_ch_def, "get")
-            ),
+            unitconv=unitconv,
         )
 
     return specs

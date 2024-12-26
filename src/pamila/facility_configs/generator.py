@@ -11,12 +11,6 @@ class PvIdToReprMap(BaseModel):
     int: Dict[str, str] = Field(default_factory=dict)
 
 
-class ConversionFuncSpec(BaseModel):
-    in_reprs: List[str]
-    out_reprs: List[str]
-    func_spec: FunctionSpec
-
-
 class PamilaDeviceDefinition(BaseModel):
     type: str
 
@@ -44,9 +38,6 @@ PamilaDeviceDefinitionUnion = Union[
 
 
 class MachineModeSpecContainer(BaseModel):
-    # LIVE: Any | None = None
-    # DT: Any | None = None
-    # SIM: Any | None = None
     LIVE: PamilaDeviceDefinitionUnion | None = None
     DT: PamilaDeviceDefinitionUnion | None = None
     SIM: PamilaDeviceDefinitionUnion | None = None
@@ -54,10 +45,13 @@ class MachineModeSpecContainer(BaseModel):
 
 class GetPVMapping(BaseModel):
     input_pvs: List[str]
+    conv_spec_name: str | None = None
 
 
 class PutPVMapping(BaseModel):
     output_pvs: List[str]
+    conv_spec_name: str | None = None
+    aux_input_pvs: List[str] | None = None
 
 
 class PVMapping(BaseModel):
@@ -76,7 +70,7 @@ class ChannelSpec(BaseModel):
 class PamilaElementDefinition(BaseModel):
     pvid_to_repr_map: PvIdToReprMap = Field(default_factory=PvIdToReprMap)
     repr_units: Dict[str, str] = Field(default_factory=dict)
-    func_specs: List[ConversionFuncSpec] = Field(default_factory=list)
+    func_specs: Dict[str, FunctionSpec] = Field(default_factory=dict)
     channel_map: Dict[str, ChannelSpec] = Field(
         default_factory=dict
     )  # channel := (field/repr, handle)

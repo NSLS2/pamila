@@ -2,7 +2,7 @@
 
 ## Environment setup
 
-`$ conda create -n pamila python=3.11 poetry numpy=1 scipy pint pyepics caproto h5py matplotlib=3.8 ipython jupyter ipympl black pre-commit pydantic=2.9 -c conda-forge`
+`$ conda create -n pamila python=3.11 poetry numpy=1 scipy pint pyepics caproto h5py matplotlib=3.8 ipython jupyter ipympl jupytext black pre-commit pydantic=2.9 -c conda-forge`
 
 (Note that pydantic=2.10 causes an error when the `ge` arg of `Field()` is a
 non-jsonable object like `pint.Quantity()` as of 11/27/2024. v2.9 works.)
@@ -59,6 +59,15 @@ commands instead:
 (pamila) $ poetry build
 (pamila) $ pip install dist/pamila-0.1.0-py3-none-any.whl --force-reinstall --no-deps
 ```
+# Generate and run example Jupyter notebooks
+
+Run the following commands to generate example notebooks:
+```
+(pamila) $ cd pamila/examples/nb_gen
+(pamila) $ python auto_gen_notebooks.py
+```
+
+Try running the notebooks in the order of the file names, starting with "00".
 
 # `pre-commit` setup
 
