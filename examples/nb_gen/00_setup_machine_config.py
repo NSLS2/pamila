@@ -64,7 +64,13 @@ sim_configs = {
 }
 
 # %%
-facility_folder = Path("demo_generated") / sim_configs["facility"]
+cwd = Path.cwd()
+if cwd.name == "examples":
+    examples_folder = cwd
+else:
+    assert cwd.name == "nb_gen"
+    examples_folder = cwd.parent
+facility_folder = examples_folder / "demo_generated" / sim_configs["facility"]
 
 # Start from scratch
 if facility_folder.exists() and facility_folder.is_dir():
@@ -86,7 +92,7 @@ machine_mlvs
 import at
 
 model_name = "bare_ideal"
-lattice_filepath = Path("lattice_files/nsls2_girders4d_pyATv0_6_1.mat")
+lattice_filepath = examples_folder / "lattice_files/nsls2_girders4d_pyATv0_6_1.mat"
 lattice = at.load_lattice(lattice_filepath)
 bpm_uint32_inds = at.get_uint32_index(lattice, "P[HLM]*")
 

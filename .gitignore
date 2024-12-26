@@ -164,5 +164,7 @@ cython_debug/
 .vscode
 *.code-workspace
 
-examples/demo_generated/*
 examples/*.pdf
+examples/*.ipynb
+examples/demo_generated/*
+examples/nb_gen/*.pdf

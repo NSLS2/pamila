@@ -59,7 +59,13 @@ pml.go_offline()
 
 # %%
 facility_name = pml.machine.get_facility_name()
-FACILITY_CONFIG_FOLDER = Path("demo_generated") / facility_name
+cwd = Path.cwd()
+if cwd.name == "examples":
+    examples_folder = cwd
+else:
+    assert cwd.name == "nb_gen"
+    examples_folder = cwd.parent
+FACILITY_CONFIG_FOLDER = examples_folder / "demo_generated" / facility_name
 machine_name = "SR"
 machine_folder = FACILITY_CONFIG_FOLDER / machine_name
 
