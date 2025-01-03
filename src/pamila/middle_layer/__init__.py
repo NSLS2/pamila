@@ -4,11 +4,12 @@ import asyncio
 from collections import defaultdict
 import threading
 import time as ttime  # as defined in ophyd.device
+from typing import List, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
-from ..unit import Q_
-from ..utils import MACHINE_DEFAULT
+from ..unit import Q_, Unit
+from ..utils import MACHINE_DEFAULT, KeyValueTagList, KeyValueTagSearch, SPositionList
 
 
 class DatabaseDict(dict):
@@ -17,6 +18,12 @@ class DatabaseDict(dict):
         self["vars"] = {}
         self["lists"] = {}
         self["trees"] = {}
+        self["vars.value_tags"] = defaultdict(list)
+        self["vars.key_value_tags"] = defaultdict(lambda: defaultdict(list))
+        self["lists.value_tags"] = defaultdict(list)
+        self["lists.key_value_tags"] = defaultdict(lambda: defaultdict(list))
+        self["trees.value_tags"] = defaultdict(list)
+        self["trees.key_value_tags"] = defaultdict(lambda: defaultdict(list))
 
 
 _DB = defaultdict(DatabaseDict)
@@ -40,6 +47,8 @@ def _register_mlo(
 
     if isinstance(mlo, (MiddleLayerVariable, MiddleLayerVariableRO)):
         d = _DB[machine_name]["vars"]
+        value_tags = _DB[machine_name]["vars.value_tags"]
+        key_value_tags = _DB[machine_name]["vars.key_value_tags"]
     elif isinstance(
         mlo,
         (
@@ -49,8 +58,12 @@ def _register_mlo(
         ),
     ):
         d = _DB[machine_name]["lists"]
+        value_tags = _DB[machine_name]["lists.value_tags"]
+        key_value_tags = _DB[machine_name]["lists.key_value_tags"]
     elif isinstance(mlo, MiddleLayerVariableTree):
         d = _DB[machine_name]["trees"]
+        value_tags = _DB[machine_name]["trees.value_tags"]
+        key_value_tags = _DB[machine_name]["trees.key_value_tags"]
     else:
         raise TypeError
 
@@ -69,6 +82,11 @@ def _register_mlo(
                 raise NameError(
                     f"{mlo.__class__.__name__} name `{name}` is already defined"
                 )
+
+        for tag_key, tag_values in mlo._spec.tags.model_dump().items():
+            for v in tag_values:
+                value_tags[v].append(name)
+                key_value_tags[tag_key][v].append(name)
 
 
 def get_all_mlvs(machine_name: str):
@@ -89,6 +107,52 @@ def get_all_multi_machine_mlvls():
 
 def get_all_multi_machine_mlvts():
     return _DB["_multi_machine"]["trees"]
+
+
+def get_all_mlv_value_tags(machine_name: str):
+    return list(_DB[machine_name]["vars.value_tags"])
+
+
+def get_all_mlv_key_value_tags(machine_name: str):
+    result = {}
+    for k, v in _DB[machine_name]["vars.key_value_tags"].items():
+        result[k] = list(v)
+    return result
+
+
+def get_mlvs_via_value_tag(machine_name: str, value_tag: int | str):
+    value_tags_d = _DB[machine_name]["vars.value_tags"]
+    assert value_tag in value_tags_d
+    return {
+        mlv_name: _DB[machine_name]["vars"][mlv_name]
+        for mlv_name in value_tags_d[value_tag]
+    }
+
+
+def get_mlvs_via_key_value_tags(
+    machine_name: str, tag_searches: List[KeyValueTagSearch]
+):
+    d = _DB[machine_name]["vars.key_value_tags"]
+
+    cum_sel = None
+    for s in tag_searches:
+        if s.key in d:
+            if s.value in d[s.key]:
+                this_sel = set(d[s.key][s.value])
+            else:
+                this_sel = set()
+        else:
+            this_sel = set()
+
+        if cum_sel is None:
+            cum_sel = this_sel
+        else:
+            cum_sel = cum_sel.intersection(this_sel)
+
+        if len(cum_sel) == 0:
+            break
+
+    return {mlv_name: _DB[machine_name]["vars"][mlv_name] for mlv_name in cum_sel}
 
 
 def _threaded_asyncio_runner(coroutine):
@@ -163,6 +227,8 @@ class MiddleLayerObjectSpec(BaseModel):
     alias: str = ""
     description: str = ""
     exist_ok: bool = False
+    s_list: SPositionList | None = None
+    tags: KeyValueTagList = Field(default_factory=KeyValueTagList)
 
 
 class MiddleLayerObject:
@@ -182,6 +248,36 @@ class MiddleLayerObject:
         model_d = {"class": self.__class__.__name__}
         model_d.update(self._spec.model_dump(exclude_unset=exclude_unset))
         return model_d
+
+    def get_spos(self, loc: Literal["b", "e", "m"] = "m"):
+        s_list = self._spec.s_list
+        if s_list.b is None or s_list.e is None:
+            spos = float("nan")
+        else:
+            if len(s_list.b) == 1 and len(s_list.e) == 1:
+                match loc:
+                    case "m":  # middle
+                        spos = (s_list.b[0] + s_list.e[0]) / 2.0
+                    case "b":  # beginning
+                        spos = s_list.b[0] * Unit("m")
+                    case "e":  # end
+                        spos = s_list.e[0] * Unit("m")
+            else:
+                raise NotImplementedError("Multiple s-pos case not handled yet")
+
+        return spos * Unit("m")
+
+    def get_phys_length(self):
+        s_list = self._spec.s_list
+        if s_list.b is None or s_list.e is None:
+            L = float("nan")
+        else:
+            if len(s_list.b) == 1 and len(s_list.e) == 1:
+                L = s_list.e[0] - s_list.b[0]
+            else:
+                raise NotImplementedError("Multiple s-pos case not handled yet")
+
+        return L * Unit("m")
 
 
 class MloName(BaseModel):

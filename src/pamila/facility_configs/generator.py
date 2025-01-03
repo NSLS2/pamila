@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field
 
 from ..device.simple import FixedWaitTime, SetpointReadbackDiffBase
 from ..device.specs import FunctionSpec
+from ..utils import KeyValueTagList, SPositionList
 
 
 class PvIdToReprMap(BaseModel):
@@ -65,9 +66,18 @@ class ChannelSpec(BaseModel):
     ext: PVMapping
     int: PVMapping
     pdev_def: MachineModeSpecContainer
+    s_list_key: str = "element"
+
+
+class _SPosLists(dict):
+    def __init__(self):
+        super().__init__()
+        self["element"] = None
 
 
 class PamilaElementDefinition(BaseModel):
+    s_lists: Dict[str, SPositionList | None] = Field(default_factory=_SPosLists)
+    tags: KeyValueTagList = Field(default_factory=KeyValueTagList)
     pvid_to_repr_map: PvIdToReprMap = Field(default_factory=PvIdToReprMap)
     repr_units: Dict[str, str] = Field(default_factory=dict)
     func_specs: Dict[str, FunctionSpec] = Field(default_factory=dict)

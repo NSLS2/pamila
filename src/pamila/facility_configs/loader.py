@@ -39,6 +39,7 @@ from ..sim_interface import (
     get_sim_pvprefix,
     set_sim_interface_spec,
 )
+from ..utils import KeyValueTagList
 from .generator import StandardSetpointDeviceDefinition
 
 ExternalPamilaSignals = {
@@ -1155,6 +1156,17 @@ class MachineConfig:
         for ch_name, ch_def in elem_def["channel_map"].items():
             mlv_name = f"{elem_name}_{ch_name}"
 
+            if "s_lists" in elem_def:
+                s_list_key = ch_def.get("s_list_key")
+                if not s_list_key:
+                    s_list_key = "element"
+
+                s_list = elem_def["s_lists"][s_list_key]
+            else:
+                s_list = None
+
+            tags_d = elem_def.get("tags", {})
+
             match ch_def["handle"]:
                 case "RB":
                     read_only = True
@@ -1268,5 +1280,7 @@ class MachineConfig:
                 simulator_config=self.sel_config_name,
                 pdev_spec_dict=pdev_specs,
                 exist_ok=exist_ok,
+                s_list=s_list,
+                tags=KeyValueTagList(tags=tags_d),
             )
             mlv_class(mlv_spec)

@@ -47,6 +47,7 @@ from pamila.facility_configs.generator import (
     StandardSetpointDeviceDefinition as standard_SP,
 )
 from pamila.sim_interface import PyATInterfaceSpec
+from pamila.utils import KeyValueTag, KeyValueTagList, SPositionList
 
 # %%
 assert pml.machine.get_facility_name() == os.environ["PAMILA_FACILITY"]
@@ -178,6 +179,7 @@ def process_slow_acq_bpm_definition(
     pml_elem_name: str,
     pvname_d: Dict,
     sim_pvsuffix_d: Dict,
+    tags: KeyValueTagList | None = None,
 ):
 
     matched_indexes = at.get_uint32_index(lattice, at_elem_name)
@@ -187,6 +189,14 @@ def process_slow_acq_bpm_definition(
     )  # Avoid numpy.uint32 that prevents saving into JSON/YAML
     elem = lattice[lattice_index]
     elem_type = elem.definition[0]
+
+    s_b_array = at.get_s_pos(lattice, matched_indexes)
+    s_e_array = s_b_array + np.array([lattice[i].Length for i in matched_indexes])
+    s_lists = dict(element=SPositionList(b=s_b_array.tolist(), e=s_e_array.tolist()))
+
+    if tags is None:
+        tags = KeyValueTagList()
+    assert isinstance(tags, KeyValueTagList)
 
     if False:
         info_to_check = dict(
@@ -247,6 +257,9 @@ def process_slow_acq_bpm_definition(
 
         elem_def = _get_blank_elem_def(elem_defs, pml_elem_name)
 
+        elem_def.s_lists = s_lists
+        elem_def.tags = tags
+
         repr_str = plane
 
         elem_def.repr_units[repr_str] = "mm"
@@ -267,44 +280,92 @@ def process_slow_acq_bpm_definition(
 
 
 # %%
+
+common_tags = dict(
+    cell_num=KeyValueTag(key="cell_num", values=[30]),
+    cell_str=KeyValueTag(key="cell_str", values=["C30"]),
+)
 bpm_info_list = [
     dict(
         at_elem_name="PH1G2C30A",
         pml_elem_name="C30_P1",
         pvname_d={"x": "SR:C30-BI{BPM:1}Pos:X-I", "y": "SR:C30-BI{BPM:1}Pos:Y-I"},
         sim_pvsuffix_d={"x": "C30_P1_X", "y": "C30_P1_Y"},
+        tags=KeyValueTagList(
+            tags=[
+                common_tags["cell_num"],
+                common_tags["cell_str"],
+                KeyValueTag(key="family", values=["BPM", "PH"]),
+            ]
+        ),
     ),
     dict(
         at_elem_name="PH2G2C30A",
         pml_elem_name="C30_P2",
         pvname_d={"x": "SR:C30-BI{BPM:2}Pos:X-I", "y": "SR:C30-BI{BPM:2}Pos:Y-I"},
         sim_pvsuffix_d={"x": "C30_P2_X", "y": "C30_P2_Y"},
+        tags=KeyValueTagList(
+            tags=[
+                common_tags["cell_num"],
+                common_tags["cell_str"],
+                KeyValueTag(key="family", values=["BPM", "PH"]),
+            ]
+        ),
     ),
     dict(
         at_elem_name="PM1G4C30A",
         pml_elem_name="C30_P3",
         pvname_d={"x": "SR:C30-BI{BPM:3}Pos:X-I", "y": "SR:C30-BI{BPM:3}Pos:Y-I"},
         sim_pvsuffix_d={"x": "C30_P3_X", "y": "C30_P3_Y"},
+        tags=KeyValueTagList(
+            tags=[
+                common_tags["cell_num"],
+                common_tags["cell_str"],
+                KeyValueTag(key="family", values=["BPM", "PM"]),
+            ]
+        ),
     ),
     dict(
         at_elem_name="PM1G4C30B",
         pml_elem_name="C30_P4",
         pvname_d={"x": "SR:C30-BI{BPM:4}Pos:X-I", "y": "SR:C30-BI{BPM:4}Pos:Y-I"},
         sim_pvsuffix_d={"x": "C30_P4_X", "y": "C30_P4_Y"},
+        tags=KeyValueTagList(
+            tags=[
+                common_tags["cell_num"],
+                common_tags["cell_str"],
+                KeyValueTag(key="family", values=["BPM", "PM"]),
+            ]
+        ),
     ),
     dict(
         at_elem_name="PL2G6C30B",
         pml_elem_name="C30_P5",
         pvname_d={"x": "SR:C30-BI{BPM:5}Pos:X-I", "y": "SR:C30-BI{BPM:5}Pos:Y-I"},
         sim_pvsuffix_d={"x": "C30_P5_X", "y": "C30_P5_Y"},
+        tags=KeyValueTagList(
+            tags=[
+                common_tags["cell_num"],
+                common_tags["cell_str"],
+                KeyValueTag(key="family", values=["BPM", "PL"]),
+            ]
+        ),
     ),
     dict(
         at_elem_name="PL1G6C30B",
         pml_elem_name="C30_P6",
         pvname_d={"x": "SR:C30-BI{BPM:6}Pos:X-I", "y": "SR:C30-BI{BPM:6}Pos:Y-I"},
         sim_pvsuffix_d={"x": "C30_P6_X", "y": "C30_P6_Y"},
+        tags=KeyValueTagList(
+            tags=[
+                common_tags["cell_num"],
+                common_tags["cell_str"],
+                KeyValueTag(key="family", values=["BPM", "PL"]),
+            ]
+        ),
     ),
 ]
+
 
 # %%
 for d in bpm_info_list:
@@ -317,6 +378,7 @@ for d in bpm_info_list:
         d["pml_elem_name"],
         d["pvname_d"],
         d["sim_pvsuffix_d"],
+        d["tags"],
     )
 
 # %% [markdown]
@@ -336,6 +398,7 @@ def process_corrector_definition(
     sim_RB_pvsuffix_d: Dict,
     sim_SP_pvsuffix_d: Dict,
     conv_func_specs: Dict[str, Dict],
+    tags: KeyValueTagList | None = None,
 ):
 
     matched_indexes = at.get_uint32_index(lattice, at_elem_name)
@@ -345,6 +408,14 @@ def process_corrector_definition(
     )  # Avoid numpy.uint32 that prevents saving into JSON/YAML
     elem = lattice[lattice_index]
     elem_type = elem.definition[0]
+
+    s_b_array = at.get_s_pos(lattice, matched_indexes)
+    s_e_array = s_b_array + np.array([lattice[i].Length for i in matched_indexes])
+    s_lists = dict(element=SPositionList(b=s_b_array.tolist(), e=s_e_array.tolist()))
+
+    if tags is None:
+        tags = KeyValueTagList()
+    assert isinstance(tags, KeyValueTagList)
 
     if False:
         info_to_check = dict(
@@ -430,6 +501,9 @@ def process_corrector_definition(
         )
 
         elem_def = _get_blank_elem_def(elem_defs, pml_elem_name)
+
+        elem_def.s_lists = s_lists
+        elem_def.tags = tags
 
         repr_I = f"{plane}_I"
         repr_angle = f"{plane}_angle"
@@ -562,6 +636,11 @@ def process_corrector_definition(
 
 
 # %%
+common_tags = dict(
+    cell_num=KeyValueTag(key="cell_num", values=[30]),
+    cell_str=KeyValueTag(key="cell_str", values=["C30"]),
+)
+
 cor_info_list = [
     dict(
         at_elem_name="CH1XG2C30A",
@@ -580,6 +659,13 @@ cor_info_list = [
                 "args": [[-18.089313617166983, 0.0]],
             },
         },
+        tags=KeyValueTagList(
+            tags=[
+                common_tags["cell_num"],
+                common_tags["cell_str"],
+                KeyValueTag(key="family", values=["SCOR", "SHCOR", "CH"]),
+            ]
+        ),
     ),
     dict(
         at_elem_name="CH1YG2C30A",
@@ -598,6 +684,13 @@ cor_info_list = [
                 "args": [[-21.978264198959234, 0.0]],
             },
         },
+        tags=KeyValueTagList(
+            tags=[
+                common_tags["cell_num"],
+                common_tags["cell_str"],
+                KeyValueTag(key="family", values=["SCOR", "SVCOR", "CH"]),
+            ]
+        ),
     ),
     dict(
         at_elem_name="CH2XG2C30A",
@@ -616,6 +709,13 @@ cor_info_list = [
                 "args": [[-18.417915081451344, 0.0]],
             },
         },
+        tags=KeyValueTagList(
+            tags=[
+                common_tags["cell_num"],
+                common_tags["cell_str"],
+                KeyValueTag(key="family", values=["SCOR", "SHCOR", "CH"]),
+            ]
+        ),
     ),
     dict(
         at_elem_name="CH2YG2C30A",
@@ -634,6 +734,13 @@ cor_info_list = [
                 "args": [[-19.698513511939083, 0.0]],
             },
         },
+        tags=KeyValueTagList(
+            tags=[
+                common_tags["cell_num"],
+                common_tags["cell_str"],
+                KeyValueTag(key="family", values=["SCOR", "SVCOR", "CH"]),
+            ]
+        ),
     ),
 ]
 
@@ -651,6 +758,7 @@ for d in cor_info_list:
         d["sim_RB_pvsuffix_d"],
         d["sim_SP_pvsuffix_d"],
         d["conv_func_specs"],
+        d["tags"],
     )
 
 # %% [markdown]
@@ -670,6 +778,7 @@ def process_quad_definition(
     sim_RB_pvsuffix: str,
     sim_SP_pvsuffix: str,
     conv_func_specs: Dict[str, Dict],
+    tags: KeyValueTagList | None = None,
 ):
 
     matched_indexes = at.get_uint32_index(lattice, at_elem_name)
@@ -679,6 +788,14 @@ def process_quad_definition(
     )  # Avoid numpy.uint32 that prevents saving into JSON/YAML
     elem = lattice[lattice_index]
     elem_type = elem.definition[0]
+
+    s_b_array = at.get_s_pos(lattice, matched_indexes)
+    s_e_array = s_b_array + np.array([lattice[i].Length for i in matched_indexes])
+    s_lists = dict(element=SPositionList(b=s_b_array.tolist(), e=s_e_array.tolist()))
+
+    if tags is None:
+        tags = KeyValueTagList()
+    assert isinstance(tags, KeyValueTagList)
 
     if False:
         info_to_check = dict(
@@ -782,6 +899,9 @@ def process_quad_definition(
     )
 
     elem_def = _get_blank_elem_def(elem_defs, pml_elem_name)
+
+    elem_def.s_lists = s_lists
+    elem_def.tags = tags
 
     repr_I = "I"
     repr_K1 = "K1"
@@ -920,14 +1040,21 @@ quad_info_list = [
             "K1_to_K1L": {"name": "poly1d", "args": [[0.268, 0.0]]},
             "K1L_to_K1": {"name": "poly1d", "args": [[3.731343283582089, 0.0]]},
         },
+        tags=KeyValueTagList(
+            tags=[
+                KeyValueTag(key="cell_num", values=[30]),
+                KeyValueTag(key="cell_str", values=["C30"]),
+                KeyValueTag(key="family", values=["QUAD", "QH1"]),
+            ]
+        ),
     ),
     dict(
-        at_elem_name="QH2G2C30A",
-        pml_elem_name="C30_QH2",
-        RB_pvname="SR:C30-MG{PS:QH2A}I:Ps1DCCT1-I",
-        SP_pvname="SR:C30-MG{PS:QH2A}I:Sp1-SP",
-        sim_RB_pvsuffix="C30_QH2_K1_RB",
-        sim_SP_pvsuffix="C30_QH2_K1_SP",
+        at_elem_name="QH2G2C02A",
+        pml_elem_name="C02_QH2",
+        RB_pvname="SR:C02-MG{PS:QH2A}I:Ps1DCCT1-I",
+        SP_pvname="SR:C02-MG{PS:QH2A}I:Sp1-SP",
+        sim_RB_pvsuffix="C02_QH2_K1_RB",
+        sim_SP_pvsuffix="C02_QH2_K1_SP",
         conv_func_specs={
             "I_to_K1": {
                 "name": "pchip_interp",
@@ -996,6 +1123,13 @@ quad_info_list = [
             "K1_to_K1L": {"name": "poly1d", "args": [[0.46, 0.0]]},
             "K1L_to_K1": {"name": "poly1d", "args": [[2.1739130434782608, 0.0]]},
         },
+        tags=KeyValueTagList(
+            tags=[
+                KeyValueTag(key="cell_num", values=[2]),
+                KeyValueTag(key="cell_str", values=["C02"]),
+                KeyValueTag(key="family", values=["QUAD", "QH2"]),
+            ]
+        ),
     ),
 ]
 
@@ -1013,6 +1147,7 @@ for d in quad_info_list:
         d["sim_RB_pvsuffix"],
         d["sim_SP_pvsuffix"],
         d["conv_func_specs"],
+        d["tags"],
     )
 
 # %% [markdown]
@@ -1032,6 +1167,7 @@ def process_sext_definition(
     sim_RB_pvsuffix: str,
     sim_SP_pvsuffix: str,
     conv_func_specs: List[Dict],
+    tags: KeyValueTagList | None = None,
 ):
 
     matched_indexes = at.get_uint32_index(lattice, at_elem_name)
@@ -1041,6 +1177,14 @@ def process_sext_definition(
     )  # Avoid numpy.uint32 that prevents saving into JSON/YAML
     elem = lattice[lattice_index]
     elem_type = elem.definition[0]
+
+    s_b_array = at.get_s_pos(lattice, matched_indexes)
+    s_e_array = s_b_array + np.array([lattice[i].Length for i in matched_indexes])
+    s_lists = dict(element=SPositionList(b=s_b_array.tolist(), e=s_e_array.tolist()))
+
+    if tags is None:
+        tags = KeyValueTagList()
+    assert isinstance(tags, KeyValueTagList)
 
     if False:
         info_to_check = dict(
@@ -1137,6 +1281,9 @@ def process_sext_definition(
 
     elem_def = _get_blank_elem_def(elem_defs, pml_elem_name)
 
+    elem_def.s_lists = s_lists
+    elem_def.tags = tags
+
     repr_I = "I"
     repr_K2 = "K2"
     repr_K2L = "K2L"
@@ -1202,6 +1349,11 @@ def process_sext_definition(
 
 
 # %%
+common_tags = dict(
+    cell_num=KeyValueTag(key="cell_num", values=[30]),
+    cell_str=KeyValueTag(key="cell_str", values=["C30"]),
+)
+
 sext_info_list = [
     dict(
         at_elem_name="SH1G2C30A",
@@ -1278,6 +1430,13 @@ sext_info_list = [
             "K2_to_K2L": {"name": "poly1d", "args": [[0.2, 0.0]]},
             "K2L_to_K2": {"name": "poly1d", "args": [[5.0, 0.0]]},
         },
+        tags=KeyValueTagList(
+            tags=[
+                common_tags["cell_num"],
+                common_tags["cell_str"],
+                KeyValueTag(key="family", values=["SEXT", "SH1"]),
+            ]
+        ),
     ),
     dict(
         at_elem_name="SM1G4C30B",
@@ -1355,6 +1514,13 @@ sext_info_list = [
             "K2_to_K2L": {"name": "poly1d", "args": [[0.2, 0.0]]},
             "K2L_to_K2": {"name": "poly1d", "args": [[5.0, 0.0]]},
         },
+        tags=KeyValueTagList(
+            tags=[
+                common_tags["cell_num"],
+                common_tags["cell_str"],
+                KeyValueTag(key="family", values=["SEXT", "SM1"]),
+            ]
+        ),
     ),
 ]
 
@@ -1372,6 +1538,7 @@ for d in sext_info_list:
         d["sim_RB_pvsuffix"],
         d["sim_SP_pvsuffix"],
         d["conv_func_specs"],
+        d["tags"],
     )
 
 # %% [markdown]
@@ -1390,6 +1557,7 @@ def process_rf_freq_definition(
     sim_RB_pvsuffix: str,
     sim_SP_pvsuffix: str,
 ):
+    s_lists = dict(element=None)
 
     if False:
         info_to_check = {}
@@ -1451,6 +1619,8 @@ def process_rf_freq_definition(
     simpv_defs.append(dict(pvclass="RfFreqSimPV", pvsuffix=sim_SP_pvsuffix))
 
     elem_def = _get_blank_elem_def(elem_defs, pml_elem_name)
+
+    elem_def.s_lists = s_lists
 
     repr = "freq"
 
@@ -1549,7 +1719,14 @@ def process_dcct_definition(
     pml_elem_name: str,
     RB_pvname: str,
     sim_RB_pvsuffix: str,
+    tags: KeyValueTagList | None = None,
 ):
+
+    s_lists = dict(element=None)
+
+    if tags is None:
+        tags = KeyValueTagList()
+    assert isinstance(tags, KeyValueTagList)
 
     if False:
         info_to_check = {}
@@ -1593,6 +1770,9 @@ def process_dcct_definition(
 
     elem_def = _get_blank_elem_def(elem_defs, pml_elem_name)
 
+    elem_def.s_lists = s_lists
+    elem_def.tags = tags
+
     repr = "I"
 
     elem_def.repr_units[repr] = "mA"
@@ -1621,6 +1801,7 @@ dcct_info = dict(
     pml_elem_name="Beam_Current",
     RB_pvname="SR:C03-BI{DCCT:1}I:Real-I",
     sim_RB_pvsuffix="beam_current",
+    tags=KeyValueTagList(tags=[KeyValueTag(key="family", values=["DCCT"])]),
 )
 
 # %%
@@ -1633,6 +1814,7 @@ process_dcct_definition(
     d["pml_elem_name"],
     d["RB_pvname"],
     d["sim_RB_pvsuffix"],
+    d["tags"],
 )
 
 # %% [markdown]
@@ -1648,7 +1830,11 @@ def process_tune_diag_definition(
     pml_elem_name: str,
     RB_pvname_d: Dict,
     sim_RB_pvsuffix_d: Dict,
+    tags: KeyValueTagList | None = None,
 ):
+    if tags is None:
+        tags = KeyValueTagList()
+    assert isinstance(tags, KeyValueTagList)
 
     if False:
         info_to_check = {}
@@ -1702,6 +1888,8 @@ def process_tune_diag_definition(
 
         elem_def = _get_blank_elem_def(elem_defs, pml_elem_name)
 
+        elem_def.tags = tags
+
         repr = f"nu{plane}"
 
         elem_def.repr_units[repr] = ""
@@ -1718,6 +1906,7 @@ def process_tune_diag_definition(
             ext=PVMapping(get=GetPVMapping(**ext_get_d)),
             int=PVMapping(get=GetPVMapping(**int_get_d)),
             pdev_def=pdev_standard_RB_def,
+            s_list_key="element",
         )
 
         pv_elem_maps[RB_pvname] = pv_elem_dict_RB
@@ -1733,6 +1922,7 @@ tune_diag_info = dict(
         "y": "SR:OPS-BI{IGPF}FBY:Tune-I",
     },
     sim_RB_pvsuffix_d={"x": "tune_x", "y": "tune_y"},
+    tags=KeyValueTagList(tags=[KeyValueTag(key="family", values=["TUNE"])]),
 )
 
 # %%
@@ -1745,6 +1935,7 @@ process_tune_diag_definition(
     d["pml_elem_name"],
     d["RB_pvname_d"],
     d["sim_RB_pvsuffix_d"],
+    d["tags"],
 )
 
 # %% [markdown]

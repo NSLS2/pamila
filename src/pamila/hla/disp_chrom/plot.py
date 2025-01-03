@@ -11,7 +11,8 @@ from ...tiled import TiledUid
 
 class Params(HlaStageParams):
     show_plot: bool = Field(True)
-    title: str = Field("")
+    disp_title: str = Field("")
+    chrom_title: str = Field("")
     export_to_file: Path | None = Field(None)
 
 
@@ -35,6 +36,25 @@ class Stage(HlaStage):
             prev_output = self._output_from_prev_stage
 
         raw = prev_output["raw_data"]
+
+        spos = raw["orbit"]["s-pos"]
+        lin_disp = dict(
+            x=prev_output["disp"]["x"][-2].to("mm").m,
+            y=prev_output["disp"]["y"][-2].to("mm").m,
+        )
+
+        fig = plt.figure()
+        plt.subplot(211)
+        plt.plot(spos["x"].to("m").m, lin_disp["x"], ".-")
+        plt.ylabel(r"$\eta_x \; [\mathrm{mm}]$", size="x-large")
+        plt.subplot(212)
+        plt.plot(spos["y"].to("m").m, lin_disp["y"], ".-")
+        plt.xlabel(r"$s\; [\mathrm{m}]$", size="x-large")
+        plt.ylabel(r"$\eta_y\; [\mathrm{mm}]$", size="x-large")
+        if params.disp_title:
+            fig.suptitle(params.disp_title)
+        plt.tight_layout()
+
         delta = raw["delta"].m
         nu = dict(x=raw["tune"]["x"].m, y=raw["tune"]["y"].m)
         chrom = dict(x=prev_output["chrom"]["x"].m, y=prev_output["chrom"]["y"].m)
@@ -45,7 +65,6 @@ class Stage(HlaStage):
         )
 
         fig = plt.figure()
-
         plt.subplot(211)
         (h,) = plt.plot(delta * 1e2, nu["x"], ".")
         plt.plot(fit_delta * 1e2, fit_nu["x"], "-", color=h.get_color())
@@ -56,8 +75,8 @@ class Stage(HlaStage):
         plt.xlabel(r"$\delta\; [\%]$", size="x-large")
         plt.ylabel(r"$\nu_y$", size="x-large")
 
-        if params.title:
-            fig.suptitle(params.title)
+        if params.chrom_title:
+            fig.suptitle(params.chrom_title)
 
         plt.tight_layout()
 

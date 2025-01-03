@@ -5,6 +5,7 @@ from pathlib import Path
 # You can ignore about the `pydantic` deprecation warning (coming from `tiled`)
 import pamila as pml
 from pamila import Q_
+from pamila.utils import KeyValueTagSearch
 
 # %%
 # Activate the simulator mode (i.e., neither LIVE nor DT [Digital Twin])
@@ -28,6 +29,27 @@ SR
 # %%
 mlvs = SR.get_all_mlvs()
 mlvs
+
+# %%
+v_tags = SR.get_all_mlv_value_tags()
+v_tags
+
+# %%
+kv_tags = SR.get_all_mlv_key_value_tags()
+kv_tags
+
+# %%
+quad_mlvs = SR.get_mlvs_via_value_tag("QUAD")
+quad_mlvs
+
+# %%
+tag_searches = [
+    KeyValueTagSearch(key="cell_str", value="C30"),
+    KeyValueTagSearch(key="family", value="QUAD"),
+]
+
+sel_quad_mlvs = SR.get_mlvs_via_key_value_tags(tag_searches)
+sel_quad_mlvs
 
 # %%
 for mlv in mlvs.values():

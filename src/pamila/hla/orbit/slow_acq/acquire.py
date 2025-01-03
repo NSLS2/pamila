@@ -1,6 +1,7 @@
 from collections.abc import Sequence
 import time
 
+import numpy as np
 from pydantic import Field, field_serializer, field_validator
 
 from .... import bluesky_wrapper as bsw
@@ -20,7 +21,7 @@ from ....middle_layer import (
 )
 from ....tiled import TiledWriter, get_client
 from ....tiled.write import write_to_tiled
-from ....unit import Q_
+from ....unit import Q_, Unit
 from ....utils import MACHINE_DEFAULT, MachineDefault, StatisticsType
 
 
@@ -133,6 +134,14 @@ class Stage(HlaInitialStage):
 
             if isinstance(bpm_mlo, MiddleLayerVariableTree):
                 output = bpm_mlo.compute_stats(results)
+                output["s-pos"] = {}
+                for plane in bpm_mlo._mlo_attrs:
+                    mlvl = getattr(bpm_mlo, plane)
+                    spos_list = [mlv.get_spos(loc="m") for mlv in mlvl.get_all_mlvs()]
+                    output["s-pos"][plane] = np.array(
+                        [s.to("meter").m for s in spos_list]
+                    ) * Unit("meter")
+
             elif isinstance(bpm_mlo, MiddleLayerVariableListRO):
                 raise NotImplementedError
             else:

@@ -168,8 +168,6 @@ pml.hla.disallow_machine_default_placeholder()
 # Repeat the steps above, and now you should get no error.
 standalone = pml.hla.orbit.slow_acq.get_flow("standalone", SR)
 
-params = standalone.get_params("acquire")
-
 standalone.run()
 # Note that the orbit is now all zero, because reloading the machine reset
 # the simulator back to the initial "no kick" state.
@@ -213,6 +211,9 @@ orb_data
 # %%
 # As an example, we can pass the orbit data onto the plot stage of this orbit
 # HLA to plot the measured orbit.
+# Also, let us use the s-positions of the BPMs, instead of BPM indexes.
 plot_stage = pml.hla.orbit.slow_acq.plot.Stage(SR)
+params = plot_stage.get_params()
+params.x_axis = "s-pos"
 plot_stage.take_output_from_prev_stage(orb_data)
 plot_stage.run()

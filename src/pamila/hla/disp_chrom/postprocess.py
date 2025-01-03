@@ -79,13 +79,12 @@ class Stage(HlaStage):
             for plane in ["x", "y"]
         }
 
-        prev_output["orbit"][0]["x"]["mean"]
-
         orb = {
             plane: [d[plane]["mean"] for d in prev_output["orbit"]]
             for plane in ["x", "y"]
         }
         orb = {plane: np.stack(v) for plane, v in orb.items()}
+        orb["s-pos"] = prev_output["orbit"][0]["s-pos"]
 
         n_order = params.chrom_max_order
         chrom = {}

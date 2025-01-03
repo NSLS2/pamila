@@ -2,7 +2,7 @@ from enum import Enum
 from typing import Any, Dict, List
 
 import numpy as np
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator, model_serializer
 
 
 class RevalidatingModel(BaseModel):
@@ -208,6 +208,41 @@ class MachineDefault(BaseModel):
     value: str = "__MACHINE_DEFAULT__"
 
     model_config = {"frozen": True}
+
+
+class SPositionList(BaseModel):
+    b: List[float]
+    e: List[float]
+
+
+class KeyValueTag(BaseModel):
+    key: str
+    values: List[int | str]
+
+
+class KeyValueTagList(BaseModel):
+    tags: List[KeyValueTag] = Field(default_factory=list)
+
+    @model_serializer(mode="wrap")
+    def custom_serializer(self, handler, info):
+        # Use the default handler to generate the base serialization
+        data = handler(self)
+        # Apply custom serialization for the `tags` field
+        mod_data = {tag.key: tag.values for tag in self.tags}
+        return mod_data
+
+    @field_validator("tags", mode="before")
+    @classmethod
+    def deserialize_tags(cls, value):
+        # Convert dictionary-style input into a list of KeyValueTag objects
+        if isinstance(value, dict):
+            return [{"key": k, "values": v} for k, v in value.items()]
+        return value
+
+
+class KeyValueTagSearch(BaseModel):
+    key: str
+    value: str | int
 
 
 class DesignLatticeProperty(BaseModel):

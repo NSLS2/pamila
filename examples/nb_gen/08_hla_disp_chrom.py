@@ -78,9 +78,8 @@ tune_params.n_meas = 4
 # Finally, you can run the standalone flow with the modified params
 standalone.run()
 
-# Note the plot shows only chromaticity, not dispersion, which is to be
-# implemented in the future. Also the fitted coefficient values will be also
-# added in the plot.
+# Note the fitted coefficient values for chromaticity are not shown in the plot,
+# but will be added in the future.
 
 # %%
 # Now instead of the "standalone" flow, we will test the "library" flow.
@@ -129,7 +128,7 @@ plot_stage.take_output_from_prev_stage(disp_chrom_data)
 # Before actually run the `plot` stage, you can change its params.
 params = plot_stage.get_params()
 params.export_to_file = Path("test.pdf")
-params.title = "Test"
+params.chrom_title = "Test Chromaticity"
 
 # %%
 # Run the `plot` stage
@@ -150,6 +149,6 @@ plot_flow.get_stage_names()
 # as before.
 params = plot_flow.get_params("plot")
 params.export_to_file = Path("test2.pdf")
-params.title = "Test"
+params.disp_title = "Test Dispersion"
 
 plot_flow.run()

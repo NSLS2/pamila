@@ -1,7 +1,7 @@
 import json
 import os
 from pathlib import Path
-from typing import Dict
+from typing import Dict, List
 
 _facility_name = os.environ.get("PAMILA_FACILITY", "")
 
@@ -28,10 +28,15 @@ from .middle_layer import (
     MlvlName,
     MlvName,
     MlvtName,
+    get_all_mlv_key_value_tags,
+    get_all_mlv_value_tags,
     get_all_mlvls,
     get_all_mlvs,
     get_all_mlvts,
+    get_mlvs_via_key_value_tags,
+    get_mlvs_via_value_tag,
 )
+from .utils import KeyValueTagSearch
 
 _MACHINES = {}
 
@@ -116,6 +121,18 @@ class Machine:
 
     def get_all_mlvts(self):
         return get_all_mlvts(self.name)
+
+    def get_all_mlv_value_tags(self):
+        return get_all_mlv_value_tags(self.name)
+
+    def get_all_mlv_key_value_tags(self):
+        return get_all_mlv_key_value_tags(self.name)
+
+    def get_mlvs_via_value_tag(self, value_tag: int | str):
+        return get_mlvs_via_value_tag(self.name, value_tag)
+
+    def get_mlvs_via_key_value_tags(self, tag_searches: List[KeyValueTagSearch]):
+        return get_mlvs_via_key_value_tags(self.name, tag_searches)
 
     def get_mlv(self, name: str | MlvName):
         if isinstance(name, MlvName):
