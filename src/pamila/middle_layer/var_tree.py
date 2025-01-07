@@ -189,6 +189,12 @@ class MiddleLayerVariableTree(MiddleLayerObject):
 
         self._non_serializable_attrs = ["_sigs_pend_funcs"]
 
+    def __repr__(self):
+        return f"MLVTree: {self.name}"
+
+    def __str__(self):
+        return f"MLVTree: {self.name}"
+
     def __getstate__(self):
 
         state = self.__dict__.copy()

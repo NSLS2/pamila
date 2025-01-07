@@ -4,12 +4,8 @@ from pydantic import BaseModel, Field
 
 from ..device.simple import FixedWaitTime, SetpointReadbackDiffBase
 from ..device.specs import FunctionSpec
+from ..middle_layer import PvIdToReprMap
 from ..utils import KeyValueTagList, SPositionList
-
-
-class PvIdToReprMap(BaseModel):
-    ext: Dict[str, str] = Field(default_factory=dict)
-    int: Dict[str, str] = Field(default_factory=dict)
 
 
 class PamilaDeviceDefinition(BaseModel):

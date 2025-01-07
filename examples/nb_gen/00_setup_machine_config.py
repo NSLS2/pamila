@@ -282,7 +282,6 @@ def process_slow_acq_bpm_definition(
 # %%
 
 common_tags = dict(
-    cell_num=KeyValueTag(key="cell_num", values=[30]),
     cell_str=KeyValueTag(key="cell_str", values=["C30"]),
 )
 bpm_info_list = [
@@ -293,7 +292,6 @@ bpm_info_list = [
         sim_pvsuffix_d={"x": "C30_P1_X", "y": "C30_P1_Y"},
         tags=KeyValueTagList(
             tags=[
-                common_tags["cell_num"],
                 common_tags["cell_str"],
                 KeyValueTag(key="family", values=["BPM", "PH"]),
             ]
@@ -306,7 +304,6 @@ bpm_info_list = [
         sim_pvsuffix_d={"x": "C30_P2_X", "y": "C30_P2_Y"},
         tags=KeyValueTagList(
             tags=[
-                common_tags["cell_num"],
                 common_tags["cell_str"],
                 KeyValueTag(key="family", values=["BPM", "PH"]),
             ]
@@ -319,7 +316,6 @@ bpm_info_list = [
         sim_pvsuffix_d={"x": "C30_P3_X", "y": "C30_P3_Y"},
         tags=KeyValueTagList(
             tags=[
-                common_tags["cell_num"],
                 common_tags["cell_str"],
                 KeyValueTag(key="family", values=["BPM", "PM"]),
             ]
@@ -332,7 +328,6 @@ bpm_info_list = [
         sim_pvsuffix_d={"x": "C30_P4_X", "y": "C30_P4_Y"},
         tags=KeyValueTagList(
             tags=[
-                common_tags["cell_num"],
                 common_tags["cell_str"],
                 KeyValueTag(key="family", values=["BPM", "PM"]),
             ]
@@ -345,7 +340,6 @@ bpm_info_list = [
         sim_pvsuffix_d={"x": "C30_P5_X", "y": "C30_P5_Y"},
         tags=KeyValueTagList(
             tags=[
-                common_tags["cell_num"],
                 common_tags["cell_str"],
                 KeyValueTag(key="family", values=["BPM", "PL"]),
             ]
@@ -358,7 +352,6 @@ bpm_info_list = [
         sim_pvsuffix_d={"x": "C30_P6_X", "y": "C30_P6_Y"},
         tags=KeyValueTagList(
             tags=[
-                common_tags["cell_num"],
                 common_tags["cell_str"],
                 KeyValueTag(key="family", values=["BPM", "PL"]),
             ]
@@ -637,7 +630,6 @@ def process_corrector_definition(
 
 # %%
 common_tags = dict(
-    cell_num=KeyValueTag(key="cell_num", values=[30]),
     cell_str=KeyValueTag(key="cell_str", values=["C30"]),
 )
 
@@ -661,7 +653,6 @@ cor_info_list = [
         },
         tags=KeyValueTagList(
             tags=[
-                common_tags["cell_num"],
                 common_tags["cell_str"],
                 KeyValueTag(key="family", values=["SCOR", "SHCOR", "CH"]),
             ]
@@ -686,7 +677,6 @@ cor_info_list = [
         },
         tags=KeyValueTagList(
             tags=[
-                common_tags["cell_num"],
                 common_tags["cell_str"],
                 KeyValueTag(key="family", values=["SCOR", "SVCOR", "CH"]),
             ]
@@ -711,7 +701,6 @@ cor_info_list = [
         },
         tags=KeyValueTagList(
             tags=[
-                common_tags["cell_num"],
                 common_tags["cell_str"],
                 KeyValueTag(key="family", values=["SCOR", "SHCOR", "CH"]),
             ]
@@ -736,7 +725,6 @@ cor_info_list = [
         },
         tags=KeyValueTagList(
             tags=[
-                common_tags["cell_num"],
                 common_tags["cell_str"],
                 KeyValueTag(key="family", values=["SCOR", "SVCOR", "CH"]),
             ]
@@ -1042,7 +1030,6 @@ quad_info_list = [
         },
         tags=KeyValueTagList(
             tags=[
-                KeyValueTag(key="cell_num", values=[30]),
                 KeyValueTag(key="cell_str", values=["C30"]),
                 KeyValueTag(key="family", values=["QUAD", "QH1"]),
             ]
@@ -1125,7 +1112,6 @@ quad_info_list = [
         },
         tags=KeyValueTagList(
             tags=[
-                KeyValueTag(key="cell_num", values=[2]),
                 KeyValueTag(key="cell_str", values=["C02"]),
                 KeyValueTag(key="family", values=["QUAD", "QH2"]),
             ]
@@ -1350,7 +1336,6 @@ def process_sext_definition(
 
 # %%
 common_tags = dict(
-    cell_num=KeyValueTag(key="cell_num", values=[30]),
     cell_str=KeyValueTag(key="cell_str", values=["C30"]),
 )
 
@@ -1432,7 +1417,6 @@ sext_info_list = [
         },
         tags=KeyValueTagList(
             tags=[
-                common_tags["cell_num"],
                 common_tags["cell_str"],
                 KeyValueTag(key="family", values=["SEXT", "SH1"]),
             ]
@@ -1516,7 +1500,6 @@ sext_info_list = [
         },
         tags=KeyValueTagList(
             tags=[
-                common_tags["cell_num"],
                 common_tags["cell_str"],
                 KeyValueTag(key="family", values=["SEXT", "SM1"]),
             ]

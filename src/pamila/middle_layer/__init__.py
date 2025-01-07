@@ -2,13 +2,17 @@ from __future__ import annotations
 
 import asyncio
 from collections import defaultdict
+from fnmatch import fnmatch
+from itertools import chain
+import re
 import threading
 import time as ttime  # as defined in ophyd.device
-from typing import List, Literal
+from typing import Dict, List, Literal
 
+import numpy as np
 from pydantic import BaseModel, Field
 
-from ..unit import Q_, Unit
+from ..unit import Q_, ureg
 from ..utils import MACHINE_DEFAULT, KeyValueTagList, KeyValueTagSearch, SPositionList
 
 
@@ -24,10 +28,44 @@ class DatabaseDict(dict):
         self["lists.key_value_tags"] = defaultdict(lambda: defaultdict(list))
         self["trees.value_tags"] = defaultdict(list)
         self["trees.key_value_tags"] = defaultdict(lambda: defaultdict(list))
+        self["elems"] = {}
+        self["elems.value_tags"] = defaultdict(list)
+        self["elems.key_value_tags"] = defaultdict(lambda: defaultdict(list))
 
 
 _DB = defaultdict(DatabaseDict)
 _DB["_multi_machine"] = DatabaseDict()
+
+
+def _register_element(
+    elem: Element,
+    exist_ok: bool,
+):
+
+    assert isinstance(elem, Element)
+
+    machine_name = elem.machine_name
+
+    d = _DB[machine_name]["elems"]
+    value_tags = _DB[machine_name]["elems.value_tags"]
+    key_value_tags = _DB[machine_name]["elems.key_value_tags"]
+
+    name = elem.name
+
+    if exist_ok:
+        d[name] = elem
+    else:
+        if name not in d:
+            d[name] = elem
+        else:
+            raise NameError(
+                f"{elem.__class__.__name__} name `{name}` is already defined"
+            )
+
+    for tag_key, tag_values in elem.get_spec().tags.model_dump().items():
+        for v in tag_values:
+            value_tags[v].append(name)
+            key_value_tags[tag_key][v].append(name)
 
 
 def _register_mlo(
@@ -83,10 +121,14 @@ def _register_mlo(
                     f"{mlo.__class__.__name__} name `{name}` is already defined"
                 )
 
-        for tag_key, tag_values in mlo._spec.tags.model_dump().items():
+        for tag_key, tag_values in mlo.get_spec().tags.model_dump().items():
             for v in tag_values:
                 value_tags[v].append(name)
                 key_value_tags[tag_key][v].append(name)
+
+
+def get_all_elems(machine_name: str):
+    return _DB[machine_name]["elems"]
 
 
 def get_all_mlvs(machine_name: str):
@@ -120,27 +162,119 @@ def get_all_mlv_key_value_tags(machine_name: str):
     return result
 
 
-def get_mlvs_via_value_tag(machine_name: str, value_tag: int | str):
-    value_tags_d = _DB[machine_name]["vars.value_tags"]
-    assert value_tag in value_tags_d
-    return {
-        mlv_name: _DB[machine_name]["vars"][mlv_name]
-        for mlv_name in value_tags_d[value_tag]
-    }
-
-
-def get_mlvs_via_key_value_tags(
-    machine_name: str, tag_searches: List[KeyValueTagSearch]
+def _get_objs_via_name(
+    obj_type: Literal["vars", "lists", "trees", "elems"],
+    machine_name: str,
+    obj_name: str,
+    search_type: Literal["exact", "fnmatch", "regex", "regex/i"] = "fnmatch",
 ):
-    d = _DB[machine_name]["vars.key_value_tags"]
+
+    obj_d = _DB[machine_name][obj_type]
+
+    obj_name_list = []
+
+    match search_type:
+        case "exact":
+            if obj_name in obj_d:
+                obj_name_list.append(obj_name)
+        case "fnmatch":
+            obj_name_list.extend([k for k in obj_d.keys() if fnmatch(k, obj_name)])
+        case "regex":
+            obj_name_list.extend([k for k in obj_d.keys() if re.search(obj_name, k)])
+        case "regex/i":
+            obj_name_list.extend(
+                [k for k in obj_d.keys() if re.search(obj_name, k, re.IGNORECASE)]
+            )
+        case _:
+            raise NotImplementedError
+
+    return {obj_name: obj_d[obj_name] for obj_name in obj_name_list}
+
+
+def _get_objs_via_value_tag(
+    obj_type: Literal["vars", "lists", "trees", "elems"],
+    machine_name: str,
+    value_tag: str,
+    search_type: Literal["exact", "fnmatch", "regex", "regex/i"] = "fnmatch",
+):
+
+    obj_d = _DB[machine_name][obj_type]
+    value_tags_d = _DB[machine_name][f"{obj_type}.value_tags"]
+
+    match search_type:
+        case "exact":
+            if value_tag not in value_tags_d:
+                obj_name_list = []
+            else:
+                obj_name_list = value_tags_d[value_tag]
+        case "fnmatch":
+            obj_name_LoL = [
+                obj_name_list
+                for k, obj_name_list in value_tags_d.items()
+                if fnmatch(k, value_tag)
+            ]
+            obj_name_list = list(chain.from_iterable(obj_name_LoL))
+        case "regex":
+            obj_name_LoL = [
+                obj_name_list
+                for k, obj_name_list in value_tags_d.items()
+                if re.search(value_tag, k)
+            ]
+            obj_name_list = list(chain.from_iterable(obj_name_LoL))
+        case "regex/i":
+            obj_name_LoL = [
+                obj_name_list
+                for k, obj_name_list in value_tags_d.items()
+                if re.search(value_tag, k, re.IGNORECASE)
+            ]
+            obj_name_list = list(chain.from_iterable(obj_name_LoL))
+        case _:
+            raise NotImplementedError
+
+    return {obj_name: obj_d[obj_name] for obj_name in obj_name_list}
+
+
+def _get_objs_via_key_value_tags(
+    obj_type: Literal["vars", "lists", "trees", "elems"],
+    machine_name: str,
+    tag_searches: List[KeyValueTagSearch],
+):
+    obj_d = _DB[machine_name][obj_type]
+    kv_tags_d = _DB[machine_name][f"{obj_type}.key_value_tags"]
 
     cum_sel = None
     for s in tag_searches:
-        if s.key in d:
-            if s.value in d[s.key]:
-                this_sel = set(d[s.key][s.value])
-            else:
-                this_sel = set()
+
+        if s.key in kv_tags_d:
+
+            avail_vals = kv_tags_d[s.key]
+
+            match s.type:
+                case "exact":
+                    if s.value in avail_vals:
+                        this_sel = set(kv_tags_d[s.key][s.value])
+                    else:
+                        this_sel = set()
+                case "fnmatch":
+                    cum_obj_name_list = []
+                    for k, obj_name_list in avail_vals.items():
+                        if fnmatch(k, s.value):
+                            cum_obj_name_list.extend(obj_name_list)
+                    this_sel = set(cum_obj_name_list)
+                case "regex":
+                    cum_obj_name_list = []
+                    for k, obj_name_list in avail_vals.items():
+                        if re.search(s.value, k):
+                            cum_obj_name_list.extend(obj_name_list)
+                    this_sel = set(cum_obj_name_list)
+                case "regex/i":
+                    cum_obj_name_list = []
+                    for k, obj_name_list in avail_vals.items():
+                        if re.search(s.value, k, re.IGNORECASE):
+                            cum_obj_name_list.extend(obj_name_list)
+                    this_sel = set(cum_obj_name_list)
+                case _:
+                    raise NotImplementedError
         else:
             this_sel = set()
 
@@ -152,7 +286,55 @@ def get_mlvs_via_key_value_tags(
         if len(cum_sel) == 0:
             break
 
-    return {mlv_name: _DB[machine_name]["vars"][mlv_name] for mlv_name in cum_sel}
+    return {obj_name: obj_d[obj_name] for obj_name in cum_sel}
+
+
+def get_mlvs_via_name(
+    machine_name: str,
+    mlv_name: str,
+    search_type: Literal["exact", "fnmatch", "regex", "regex/i"] = "fnmatch",
+):
+    return _get_objs_via_name("vars", machine_name, mlv_name, search_type=search_type)
+
+
+def get_mlvs_via_value_tag(
+    machine_name: str,
+    value_tag: str,
+    search_type: Literal["exact", "fnmatch", "regex", "regex/i"] = "fnmatch",
+):
+    return _get_objs_via_value_tag(
+        "vars", machine_name, value_tag, search_type=search_type
+    )
+
+
+def get_mlvs_via_key_value_tags(
+    machine_name: str, tag_searches: List[KeyValueTagSearch]
+):
+    return _get_objs_via_key_value_tags("vars", machine_name, tag_searches)
+
+
+def get_elems_via_name(
+    machine_name: str,
+    elem_name: str,
+    search_type: Literal["exact", "fnmatch", "regex", "regex/i"] = "fnmatch",
+):
+    return _get_objs_via_name("elems", machine_name, elem_name, search_type=search_type)
+
+
+def get_elems_via_value_tag(
+    machine_name: str,
+    value_tag: str,
+    search_type: Literal["exact", "fnmatch", "regex", "regex/i"] = "fnmatch",
+):
+    return _get_objs_via_value_tag(
+        "elems", machine_name, value_tag, search_type=search_type
+    )
+
+
+def get_elems_via_key_value_tags(
+    machine_name: str, tag_searches: List[KeyValueTagSearch]
+):
+    return _get_objs_via_key_value_tags("elems", machine_name, tag_searches)
 
 
 def _threaded_asyncio_runner(coroutine):
@@ -222,6 +404,67 @@ def _wait_for_connection(
     raise TimeoutError("; ".join(reasons))
 
 
+def get_spos(s_list: SPositionList, loc: Literal["b", "e", "c"] = "c"):
+    if (s_list is None) or (s_list.b is None) or (s_list.e is None):
+        spos = float("nan")
+    else:
+        if len(s_list.b) == 1 and len(s_list.e) == 1:
+            match loc:
+                case "c":  # center
+                    spos = (s_list.b[0] + s_list.e[0]) / 2.0
+                case "b":  # beginning
+                    spos = s_list.b[0]
+                case "e":  # end
+                    spos = s_list.e[0]
+        else:
+            raise NotImplementedError("Multiple s-pos case not handled yet")
+
+    return spos * ureg.meter
+
+
+def get_phys_length(s_list: SPositionList):
+    if s_list.b is None or s_list.e is None:
+        L = float("nan")
+    else:
+        if len(s_list.b) == 1 and len(s_list.e) == 1:
+            L = s_list.e[0] - s_list.b[0]
+        else:
+            raise NotImplementedError("Multiple s-pos case not handled yet")
+
+    return L * ureg.meter
+
+
+def sort_by_spos(
+    objs: List[MiddleLayerObject | Element] | Dict[str, MiddleLayerObject | Element],
+    loc: Literal["b", "e", "c"] = "c",
+    exclude_nan: bool = True,
+):
+
+    if isinstance(objs, list):
+        spos_list = [o.get_spos(loc=loc).to("m").m for o in objs]
+        if exclude_nan:
+            sorted_objs = [
+                objs[i] for i in np.argsort(spos_list) if not np.isnan(spos_list[i])
+            ]
+        else:
+            sorted_objs = [objs[i] for i in np.argsort(spos_list)]
+    elif isinstance(objs, dict):
+        keys = list(objs)
+        spos_list = np.array([o.get_spos(loc=loc).to("m").m for o in objs.values()])
+        if exclude_nan:
+            sorted_objs = [
+                objs[keys[i]]
+                for i in np.argsort(spos_list)
+                if not np.isnan(spos_list[i])
+            ]
+        else:
+            sorted_objs = [objs[keys[i]] for i in np.argsort(spos_list)]
+    else:
+        raise NotImplementedError
+
+    return sorted_objs
+
+
 class MiddleLayerObjectSpec(BaseModel):
     name: str
     alias: str = ""
@@ -249,35 +492,13 @@ class MiddleLayerObject:
         model_d.update(self._spec.model_dump(exclude_unset=exclude_unset))
         return model_d
 
-    def get_spos(self, loc: Literal["b", "e", "m"] = "m"):
+    def get_spos(self, loc: Literal["b", "e", "c"] = "c"):
         s_list = self._spec.s_list
-        if s_list.b is None or s_list.e is None:
-            spos = float("nan")
-        else:
-            if len(s_list.b) == 1 and len(s_list.e) == 1:
-                match loc:
-                    case "m":  # middle
-                        spos = (s_list.b[0] + s_list.e[0]) / 2.0
-                    case "b":  # beginning
-                        spos = s_list.b[0] * Unit("m")
-                    case "e":  # end
-                        spos = s_list.e[0] * Unit("m")
-            else:
-                raise NotImplementedError("Multiple s-pos case not handled yet")
-
-        return spos * Unit("m")
+        return get_spos(s_list, loc=loc)
 
     def get_phys_length(self):
         s_list = self._spec.s_list
-        if s_list.b is None or s_list.e is None:
-            L = float("nan")
-        else:
-            if len(s_list.b) == 1 and len(s_list.e) == 1:
-                L = s_list.e[0] - s_list.b[0]
-            else:
-                raise NotImplementedError("Multiple s-pos case not handled yet")
-
-        return L * Unit("m")
+        return get_phys_length(s_list)
 
 
 class MloName(BaseModel):
@@ -357,6 +578,7 @@ def nested_deserialize_mlo_names(value):
 
 
 from . import var_list, var_tree, variable
+from .element import Element, ElementSpec, PvIdToReprMap
 from .var_list import (
     AutoUpdateOption,
     MiddleLayerVariableList,

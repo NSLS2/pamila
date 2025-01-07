@@ -192,6 +192,13 @@ class MiddleLayerVariable(MiddleLayerVariableBase):
         super().__init__(spec)
         self.read_only = False
 
+    def __repr__(self):
+        # return f"MiddleLayerVariable({self._spec!r})"
+        return f"MLV: {self.name}"
+
+    def __str__(self):
+        return f"MLV: {self.name}"
+
     def put(self, values_w_unit, *args, **kwargs):
         pdev = self.get_device()
         return pdev.put(values_w_unit, *args, **kwargs)
@@ -226,6 +233,13 @@ class MiddleLayerVariableRO(MiddleLayerVariableBase):
 
         super().__init__(spec)
         self.read_only = True
+
+    def __repr__(self):
+        # return f"MiddleLayerVariableRO({self._spec!r})"
+        return f"MLVRO: {self.name}"
+
+    def __str__(self):
+        return f"MLVRO: {self.name}"
 
     def put(self, *args, **kwargs):
         raise ReadOnlyError

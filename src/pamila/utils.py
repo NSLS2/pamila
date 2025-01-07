@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Literal
 
 import numpy as np
 from pydantic import BaseModel, Field, field_validator, model_serializer
@@ -217,7 +217,7 @@ class SPositionList(BaseModel):
 
 class KeyValueTag(BaseModel):
     key: str
-    values: List[int | str]
+    values: List[str]
 
 
 class KeyValueTagList(BaseModel):
@@ -242,7 +242,8 @@ class KeyValueTagList(BaseModel):
 
 class KeyValueTagSearch(BaseModel):
     key: str
-    value: str | int
+    value: str
+    type: Literal["exact", "fnmatch", "regex", "regex/i"] = "fnmatch"
 
 
 class DesignLatticeProperty(BaseModel):

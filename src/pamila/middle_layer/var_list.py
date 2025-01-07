@@ -409,6 +409,12 @@ class MiddleLayerVariableList(MiddleLayerVariableListBase):
         if not spec.ignore_put_collision:
             self.assert_collisionless_put()
 
+    def __repr__(self):
+        return f"MLVList: {self.name}"
+
+    def __str__(self):
+        return f"MLVList: {self.name}"
+
     def assert_collisionless_put(self):
         """ " Make sure that self.put() will NOT result in writing different
         values to an identical underlying signal."""
@@ -492,6 +498,12 @@ class MiddleLayerVariableListRO(MiddleLayerVariableListBase):
         super().__init__(spec)
 
         self.read_only = True
+
+    def __repr__(self):
+        return f"MLVListRO: {self.name}"
+
+    def __str__(self):
+        return f"MLVListRO: {self.name}"
 
     def put(self, *args, **kwargs):
         raise ReadOnlyError

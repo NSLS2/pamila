@@ -18,6 +18,8 @@ from ..device.simple import (
 )
 from ..device.specs import FunctionSpec, PamilaDeviceActionSpec, UnitConvSpec
 from ..middle_layer import (
+    Element,
+    ElementSpec,
     MiddleLayerVariable,
     MiddleLayerVariableRO,
     MiddleLayerVariableSpec,
@@ -1153,6 +1155,24 @@ class MachineConfig:
 
         elem_name_pvid_to_pvinfo = self.elem_name_pvid_to_pvinfo
 
+        if "s_lists" in elem_def:
+            elem_s_list = elem_def["s_lists"].get("element", None)
+        else:
+            elem_s_list = None
+
+        elem_spec = ElementSpec(
+            name=elem_name,
+            machine_name=self.machine_name,
+            pvid_to_repr_map=elem_def["pvid_to_repr_map"],
+            repr_units=elem_def["repr_units"],
+            channel_names=list(elem_def["channel_map"]),
+            description=elem_def.get("description", ""),
+            s_list=elem_s_list,
+            tags=KeyValueTagList(tags=elem_def.get("tags", {})),
+            exist_ok=exist_ok,
+        )
+        Element(elem_spec)
+
         for ch_name, ch_def in elem_def["channel_map"].items():
             mlv_name = f"{elem_name}_{ch_name}"
 
@@ -1161,7 +1181,7 @@ class MachineConfig:
                 if not s_list_key:
                     s_list_key = "element"
 
-                s_list = elem_def["s_lists"][s_list_key]
+                s_list = elem_def["s_lists"].get(s_list_key, None)
             else:
                 s_list = None
 

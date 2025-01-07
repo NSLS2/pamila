@@ -1,7 +1,7 @@
 import json
 import os
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Literal
 
 _facility_name = os.environ.get("PAMILA_FACILITY", "")
 
@@ -28,12 +28,17 @@ from .middle_layer import (
     MlvlName,
     MlvName,
     MlvtName,
+    get_all_elems,
     get_all_mlv_key_value_tags,
     get_all_mlv_value_tags,
     get_all_mlvls,
     get_all_mlvs,
     get_all_mlvts,
+    get_elems_via_key_value_tags,
+    get_elems_via_name,
+    get_elems_via_value_tag,
     get_mlvs_via_key_value_tags,
+    get_mlvs_via_name,
     get_mlvs_via_value_tag,
 )
 from .utils import KeyValueTagSearch
@@ -113,6 +118,9 @@ class Machine:
             # Instantiate the MLVT object
             MiddleLayerVariableTree(spec)
 
+    def get_all_elems(self):
+        return get_all_elems(self.name)
+
     def get_all_mlvs(self):
         return get_all_mlvs(self.name)
 
@@ -128,11 +136,39 @@ class Machine:
     def get_all_mlv_key_value_tags(self):
         return get_all_mlv_key_value_tags(self.name)
 
-    def get_mlvs_via_value_tag(self, value_tag: int | str):
-        return get_mlvs_via_value_tag(self.name, value_tag)
+    def get_mlvs_via_name(
+        self,
+        mlv_name: str,
+        search_type: Literal["exact", "fnmatch", "regex", "regex/i"] = "fnmatch",
+    ):
+        return get_mlvs_via_name(self.name, mlv_name, search_type=search_type)
+
+    def get_mlvs_via_value_tag(
+        self,
+        value_tag: str,
+        search_type: Literal["exact", "fnmatch", "regex", "regex/i"] = "fnmatch",
+    ):
+        return get_mlvs_via_value_tag(self.name, value_tag, search_type=search_type)
 
     def get_mlvs_via_key_value_tags(self, tag_searches: List[KeyValueTagSearch]):
         return get_mlvs_via_key_value_tags(self.name, tag_searches)
+
+    def get_elems_via_name(
+        self,
+        elem_name: str,
+        search_type: Literal["exact", "fnmatch", "regex", "regex/i"] = "fnmatch",
+    ):
+        return get_elems_via_name(self.name, elem_name, search_type=search_type)
+
+    def get_elems_via_value_tag(
+        self,
+        value_tag: str,
+        search_type: Literal["exact", "fnmatch", "regex", "regex/i"] = "fnmatch",
+    ):
+        return get_elems_via_value_tag(self.name, value_tag, search_type=search_type)
+
+    def get_elems_via_key_value_tags(self, tag_searches: List[KeyValueTagSearch]):
+        return get_elems_via_key_value_tags(self.name, tag_searches)
 
     def get_mlv(self, name: str | MlvName):
         if isinstance(name, MlvName):
@@ -236,6 +272,7 @@ def load_machine(
     if dirpath is None:
         raise NotImplementedError
 
+    get_all_elems(machine_name).clear()
     get_all_mlvs(machine_name).clear()
     get_all_mlvls(machine_name).clear()
     get_all_mlvts(machine_name).clear()
