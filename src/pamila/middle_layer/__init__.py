@@ -16,6 +16,10 @@ from ..unit import Q_, ureg
 from ..utils import MACHINE_DEFAULT, KeyValueTagList, KeyValueTagSearch, SPositionList
 
 
+def default_dict_of_lists():
+    return defaultdict(list)
+
+
 class DatabaseDict(dict):
     def __init__(self):
         super().__init__()
@@ -23,18 +27,22 @@ class DatabaseDict(dict):
         self["lists"] = {}
         self["trees"] = {}
         self["vars.value_tags"] = defaultdict(list)
-        self["vars.key_value_tags"] = defaultdict(lambda: defaultdict(list))
+        self["vars.key_value_tags"] = defaultdict(default_dict_of_lists)
         self["lists.value_tags"] = defaultdict(list)
-        self["lists.key_value_tags"] = defaultdict(lambda: defaultdict(list))
+        self["lists.key_value_tags"] = defaultdict(default_dict_of_lists)
         self["trees.value_tags"] = defaultdict(list)
-        self["trees.key_value_tags"] = defaultdict(lambda: defaultdict(list))
+        self["trees.key_value_tags"] = defaultdict(default_dict_of_lists)
         self["elems"] = {}
         self["elems.value_tags"] = defaultdict(list)
-        self["elems.key_value_tags"] = defaultdict(lambda: defaultdict(list))
+        self["elems.key_value_tags"] = defaultdict(default_dict_of_lists)
 
 
 _DB = defaultdict(DatabaseDict)
 _DB["_multi_machine"] = DatabaseDict()
+
+
+def _get_machine_db(machine_name: str):
+    return _DB[machine_name]
 
 
 def _register_element(

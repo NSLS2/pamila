@@ -28,6 +28,7 @@ from .middle_layer import (
     MlvlName,
     MlvName,
     MlvtName,
+    _get_machine_db,
     get_all_elems,
     get_all_mlv_key_value_tags,
     get_all_mlv_value_tags,
@@ -117,6 +118,9 @@ class Machine:
 
             # Instantiate the MLVT object
             MiddleLayerVariableTree(spec)
+
+    def _get_db(self):
+        return _get_machine_db(self.name)
 
     def get_all_elems(self):
         return get_all_elems(self.name)
