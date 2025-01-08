@@ -3,7 +3,7 @@ import asyncio
 from bluesky import RunEngine
 from bluesky.utils import Msg
 
-from .timer import TimerDict
+from ..timer import TimerDict
 
 
 class ModifiedRunEngine(RunEngine):

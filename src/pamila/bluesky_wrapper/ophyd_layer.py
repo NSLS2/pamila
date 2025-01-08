@@ -12,10 +12,10 @@ import pandas as pd
 
 from .. import USERNAME
 from ..tiled import TiledWriter, pint_serializable_df
+from ..timer import TimerDict
 from ..utils import StatisticsType
 from .run_engine import RE
 from .set_utils import JumpSet, RampSet, ramp_set, wait_optional_move_per_step
-from .timer import TimerDict
 
 UTIL_DEVS = {}
 BS_OUTPUT = {}
