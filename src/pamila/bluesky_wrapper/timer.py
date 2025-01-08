@@ -28,9 +28,9 @@ class Timer:
     def total_seconds(self):
         return self.raw_dt
 
-    def print(self):
+    def print(self, decimal: int = 1):
         dt = self.raw_dt
-        print(f"Elapsed ({self.name}) = {dt:.1f} [s]")
+        print(f"Elapsed ({self.name}) = {dt:.{decimal}f} [s]")
 
     def get_start_time_str(self):
         return self.start_wall_clock.strftime("%Y%m%dT%H%M%S.%f")
