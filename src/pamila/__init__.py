@@ -32,7 +32,7 @@ from .machine_modes import (
 from . import sim_interface
 from . import middle_layer
 from . import machine
-from .machine import load_machine
+from .machine import load_machine, load_cached_machine
 from . import signal
 from . import hla
 from .hla import load_hla_defaults

@@ -45,7 +45,7 @@ class Stage(HlaStage):
 
     def _load_design_lat_prop_vals(self):
         params = self.params
-        design_props = self._machine._conf.design_lat_props["design_properties"]
+        design_props = self._machine.get_design_lattice_props()["design_properties"]
 
         if isinstance(params.momentum_compaction, DesignLatticeProperty):
             design = params.momentum_compaction

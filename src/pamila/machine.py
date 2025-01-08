@@ -1,6 +1,8 @@
+import gzip
 import json
 import os
 from pathlib import Path
+import pickle
 from typing import Dict, List, Literal
 
 _facility_name = os.environ.get("PAMILA_FACILITY", "")
@@ -19,6 +21,7 @@ from pydantic import BaseModel
 
 from .facility_configs.loader import MachineConfig
 from .middle_layer import (
+    DatabaseDict,
     MiddleLayerVariableList,
     MiddleLayerVariableListRO,
     MiddleLayerVariableListROSpec,
@@ -29,6 +32,7 @@ from .middle_layer import (
     MlvName,
     MlvtName,
     _get_machine_db,
+    _set_machine_db,
     get_all_elems,
     get_all_mlv_key_value_tags,
     get_all_mlv_value_tags,
@@ -50,11 +54,63 @@ _MACHINES = {}
 class Machine:
     """ """
 
-    def __init__(self, machine_name: str, dirpath: Path, model_name: str = ""):
+    def __init__(
+        self,
+        machine_name: str,
+        dirpath: str | Path | None = None,
+        model_name: str = "",
+        cache_filepath: str | Path | None = None,
+    ):
         self.name = machine_name
 
-        self._conf = MachineConfig(machine_name, dirpath, model_name=model_name)
+        if dirpath is None:
+            load_from_cache = True
+            if cache_filepath is None:
+                raise ValueError(
+                    "Either `dirpath` or `cache_filepath` must be specified"
+                )
+            elif isinstance(cache_filepath, str):
+                cache_filepath = Path(cache_filepath)
+            else:
+                assert isinstance(cache_filepath, Path)
+            assert cache_filepath.exists()
+        else:
+            load_from_cache = False
+            if isinstance(dirpath, str):
+                dirpath = Path(dirpath)
+            else:
+                assert isinstance(dirpath, Path)
+            assert dirpath.exists()
+
+        if load_from_cache:
+            if model_name:
+                raise NotImplementedError
+
+            with gzip.GzipFile(cache_filepath, "rb") as f:
+                cached_machine_obj = pickle.load(f)
+                cached_db = pickle.load(f)
+
+            assert cached_machine_obj.name == self.name
+
+            self._conf = cached_machine_obj._conf
+            self._conf._update_from_cache()
+            self._set_db(cached_db)
+        else:
+            self._conf = MachineConfig(machine_name, dirpath, model_name=model_name)
+
         self._control_system = self._conf.sim_configs.control_system
+
+    def save_to_cache_file(self, cache_filepath: str | Path):
+
+        if isinstance(cache_filepath, str):
+            cache_filepath = Path(cache_filepath)
+
+        with gzip.GzipFile(cache_filepath, "wb") as f:
+            pickle.dump(self, f)
+            pickle.dump(self._get_db(), f)
+
+    def get_design_lattice_props(self):
+        return self._conf.get_design_lattice_props()
 
     def get_sim_interface(self):
         # self = _MACHINES[machine_name]
@@ -121,6 +177,9 @@ class Machine:
 
     def _get_db(self):
         return _get_machine_db(self.name)
+
+    def _set_db(self, db: DatabaseDict):
+        return _set_machine_db(self.name, db)
 
     def get_all_elems(self):
         return get_all_elems(self.name)
@@ -281,10 +340,22 @@ def load_machine(
     get_all_mlvls(machine_name).clear()
     get_all_mlvts(machine_name).clear()
 
-    machine = Machine(machine_name, dirpath, model_name=model_name)
+    machine = Machine(machine_name, dirpath=dirpath, model_name=model_name)
 
     machine._construct_mlvls()
     machine._construct_mlvts()
+
+    _MACHINES[machine_name] = machine
+
+    from .hla import HLA_DEFAULTS
+
+    HLA_DEFAULTS[machine_name] = {}
+
+    return machine
+
+
+def load_cached_machine(machine_name: str, cache_filepath: str | Path):
+    machine = Machine(machine_name, cache_filepath=cache_filepath)
 
     _MACHINES[machine_name] = machine
 

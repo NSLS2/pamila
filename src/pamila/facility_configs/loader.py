@@ -959,10 +959,18 @@ def get_MIMO_SP_pdev_spec(
 class MachineConfig:
     def __init__(self, machine_name: str, dirpath: Path, model_name: str = ""):
 
-        self.dirpath = dirpath
         self.machine_name = machine_name
 
-        machine_folder = dirpath / machine_name
+        self.dirpath = dirpath
+        self.model_name = model_name
+
+        self._noncache_load()
+
+        self._non_serializable_attrs = []
+
+    def _noncache_load(self):
+
+        machine_folder = self.dirpath / self.machine_name
 
         sim_configs_yaml_d = yaml.safe_load(
             (machine_folder / "sim_configs.yaml").read_text()
@@ -981,8 +989,8 @@ class MachineConfig:
         self.sel_config_name = self.sim_configs.selected_config
         self.sim_conf = self.sim_configs.simulator_configs[self.sel_config_name]
 
-        if model_name:
-            self._lattice_model_name = model_name
+        if self.model_name:
+            self._lattice_model_name = self.model_name
         else:
             self._lattice_model_name = self.sim_conf.default_lattice_model
 
@@ -995,14 +1003,21 @@ class MachineConfig:
 
         self._set_sim_interface_spec()
 
-        _reset_sim_interface(machine_name)  # Necessary when reloading the machine
+        _reset_sim_interface(self.machine_name)  # Necessary when reloading the machine
         # to clear out previously loaded simulators.
 
         self._construct_mlvs()
         # MLVLs and MLVTs will be constructed once Machine() initialization is
         # completed.
 
-        self._non_serializable_attrs = []
+    def _update_from_cache(self):
+
+        self._load_device_conversion_plugins()
+
+        self._set_sim_interface_spec()
+
+        _reset_sim_interface(self.machine_name)  # Necessary when reloading the machine
+        # to clear out previously loaded simulators.
 
     def __getstate__(self):
 
@@ -1090,8 +1105,13 @@ class MachineConfig:
 
     def _load_lattice_design_props_from_files(self):
 
-        folder = self.config_folder / self._lattice_model_name
-        self.design_lat_props = json.loads((folder / "design_props.json").read_text())
+        d = self.design_lat_props = {}
+        for model_name in self.sim_conf.lattice_models.keys():
+            folder = self.config_folder / model_name
+            d[model_name] = json.loads((folder / "design_props.json").read_text())
+
+    def get_design_lattice_props(self):
+        return self.design_lat_props[self._lattice_model_name]
 
     def _set_sim_interface_spec(self):
 
@@ -1104,7 +1124,6 @@ class MachineConfig:
                     sim_pv_defs[pvsuffix] = SimulatorPvDefinition(
                         **{k: v for k, v in d.items() if k != "pvsuffix"}
                     )
-                self.sim_configs
                 sim_conf_d = self.sim_conf.model_dump()
                 sim_conf_d["sim_pv_defs"] = sim_pv_defs
                 self.sim_itf_spec = PyATInterfaceSpec(**sim_conf_d)

@@ -2092,4 +2092,16 @@ print(f"{machine_name = }")
 machine_obj = pml.load_machine(machine_name, dirpath=facility_folder)
 
 # %% [markdown]
+# # For faster loading, we can save the machine object into a cache file, and load from that file.
+
+# %%
+# Save the machine object and other necessary data to a cache file
+cache_filepath = Path("SR_cache.pgz")
+machine_obj.save_to_cache_file(cache_filepath)
+
+# %%
+# Reload the machine object from the cache file
+reloaded_machine_obj = pml.load_cached_machine(sim_configs["machine"], cache_filepath)
+
+# %% [markdown]
 # # MLVLs (MLV lists) and MLVTs (MLV trees) will be defined in a separate notebook.

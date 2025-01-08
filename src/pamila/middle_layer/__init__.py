@@ -45,6 +45,10 @@ def _get_machine_db(machine_name: str):
     return _DB[machine_name]
 
 
+def _set_machine_db(machine_name: str, db: DatabaseDict):
+    _DB[machine_name] = db
+
+
 def _register_element(
     elem: Element,
     exist_ok: bool,
