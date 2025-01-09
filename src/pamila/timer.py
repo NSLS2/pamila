@@ -44,5 +44,32 @@ class Timer:
 class TimerDict(dict):
     def start(self, name, exist_ok: bool = True):
         if (not exist_ok) and (name in self):
-            raise ValueError(f'Another time with the same name "{name}" already exists')
-        self.__setitem__(name, Timer(name))
+            raise ValueError(
+                f'Another timer with the same name "{name}" already exists'
+            )
+        timer = Timer(name)
+        self[name] = timer
+        return self
+
+    def print(self, decimal: int = 3):
+        for v in self.values():
+            v.print(decimal=decimal)
+
+    def __enter__(self):
+        if "name" not in self._timeit_kwargs:
+            raise RuntimeError(
+                "You must use context like 'with TimerDict().timeit(label):'."
+            )
+        self.start(
+            self._timeit_kwargs["name"], exist_ok=self._timeit_kwargs["exist_ok"]
+        )
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+
+        self[self._timeit_kwargs["name"]].stop()
+        self._timeit_kwargs.clear()
+
+    def timeit(self, name, exist_ok: bool = True):
+        self._timeit_kwargs = dict(name=name, exist_ok=exist_ok)
+        return self
