@@ -12,7 +12,7 @@ from . import (
 from ..device import create_pamila_device_from_spec
 from ..device.base import PamilaDeviceBaseSpec
 from ..machine_modes import MachineMode, get_machine_mode
-from ..unit import Q_
+from ..unit import Q_, Unit, fast_convert
 
 
 class MiddleLayerVariableSpec(MiddleLayerObjectSpec):
@@ -135,9 +135,7 @@ class MiddleLayerVariableBase(MiddleLayerObject):
 
         return self._sigs_pend_funcs[(mode, all_signals)]
 
-    def wait_for_connection(
-        self, all_modes: bool = False, all_signals=False, timeout: Q_ | None = Q_("2 s")
-    ):
+    def get_connection_check_args(self, all_modes: bool = False, all_signals=False):
 
         if False:
             if not all_modes:
@@ -157,6 +155,17 @@ class MiddleLayerVariableBase(MiddleLayerObject):
             signals, pending_funcs = self._get_sigs_pend_funcs(all_modes, all_signals)
 
         mlv_names = [self.name] * len(signals)
+
+        return mlv_names, signals, pending_funcs
+
+    def wait_for_connection(
+        self, all_modes: bool = False, all_signals=False, timeout: Q_ | None = Q_("2 s")
+    ):
+
+        mlv_names, signals, pending_funcs = self.get_connection_check_args(
+            all_modes=all_modes, all_signals=all_signals
+        )
+
         _wait_for_connection(mlv_names, signals, pending_funcs, timeout=timeout)
 
     def get_device(self):
@@ -213,7 +222,7 @@ class MiddleLayerVariable(MiddleLayerVariableBase):
         state = self.set(values_w_unit, *args, **kwargs)
         dt = None
         if timeout is not None:
-            dt = timeout.to("s").m - (ttime.perf_counter() - t0)
+            dt = fast_convert(timeout, "s").m - (ttime.perf_counter() - t0)
             if dt < 0.0:
                 raise TimeoutError
         state.wait(timeout=dt)

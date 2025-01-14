@@ -8,7 +8,7 @@ from ophyd.utils.epics_pvs import data_shape, data_type
 
 from .machine_modes import MachineMode
 from .sim_interface import SimulatorInterfacePath, get_sim_interface
-from .unit import Q_, DimensionalityError, Unit
+from .unit import Q_, DimensionalityError, Unit, fast_convert, fast_create_Q
 
 
 # Based on
@@ -153,11 +153,11 @@ class PamilaSignal:
         def wrapper(self, *args, **kwargs):
             values = get_method(self, *args, **kwargs)
             try:
-                self._readback = values * self.unit
+                self._readback = fast_create_Q(values, self.unit_str)
             except DimensionalityError:
                 raise
             except:
-                self._readback = [v * self.unit for v in values]
+                self._readback = [fast_create_Q(v, self.unit_str) for v in values]
 
             return self._readback
 
@@ -168,12 +168,12 @@ class PamilaSignal:
         def wrapper(self, values, *args, **kwargs):
             if isinstance(values, Q_):  # Q_ is also Iterable.
                 try:
-                    values_wo_unit = values.to(self.unit_str).m
+                    values_wo_unit = fast_convert(values, self.unit_str).m
                 except DimensionalityError:
                     raise
             elif isinstance(values, Iterable):
                 try:
-                    values_wo_unit = [v.to(self.unit_str).m for v in values]
+                    values_wo_unit = [fast_convert(v, self.unit_str).m for v in values]
                 except:
                     raise
             else:

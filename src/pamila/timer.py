@@ -58,7 +58,10 @@ class TimerDict(dict):
         return self
 
     def get_print_lines(self, decimal: int = 3):
-        return [v.get_print_str(decimal=decimal) for v in self.values()]
+        return [
+            v.get_print_str(decimal=decimal) if v is not None else ""
+            for v in self.values()
+        ]
 
     def print(self, decimal: int = 3):
         print("\n".join(self.get_print_lines(decimal=decimal)))

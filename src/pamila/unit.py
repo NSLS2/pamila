@@ -1,4 +1,9 @@
-from pint import DimensionalityError, UnitRegistry, set_application_registry
+from pint import (
+    DimensionalityError,
+    UndefinedUnitError,
+    UnitRegistry,
+    set_application_registry,
+)
 import platformdirs
 
 _pint_cache_folder = platformdirs.user_cache_path() / "pamila" / "pint"
@@ -18,6 +23,34 @@ set_application_registry(ureg)  # if pickling/unpickling is needed
 
 ureg.setup_matplotlib()
 
-Quantity = ureg.Quantity
-Q_ = ureg.Quantity
-Unit = ureg.Unit
+Q_ = Quantity = ureg.Quantity
+
+_CANONICAL_UNIT_STRS = {}
+_CANONICAL_UNIT_OBJS = {}
+
+
+def _get_canonical_name(unit_str: str):
+    if unit_str not in _CANONICAL_UNIT_STRS:
+        try:
+            _CANONICAL_UNIT_STRS[unit_str] = ureg.get_name(unit_str)
+        except UndefinedUnitError:
+            _CANONICAL_UNIT_STRS[unit_str] = str(ureg.Unit(unit_str))
+    return _CANONICAL_UNIT_STRS[unit_str]
+
+
+def _get_canonical_unit_obj(unit_str: str):
+    if unit_str not in _CANONICAL_UNIT_OBJS:
+        _CANONICAL_UNIT_OBJS[unit_str] = getattr(ureg, _get_canonical_name(unit_str))
+    return _CANONICAL_UNIT_OBJS[unit_str]
+
+
+def Unit(unit_str: str):
+    return _get_canonical_unit_obj(unit_str)
+
+
+def fast_create_Q(value: int | float, unit_str: str) -> Q_:
+    return Q_(value, _get_canonical_name(unit_str))
+
+
+def fast_convert(value_w_unit: Q_, dst_unit_str: str):
+    return value_w_unit.to(_get_canonical_unit_obj(dst_unit_str))

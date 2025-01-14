@@ -9,7 +9,7 @@ SLEEP = ttime.sleep
 # SLEEP = bps_sleep
 
 from ..serialization import json_deserialize_pint_quantity, json_serialize_pint_quantity
-from ..unit import Q_
+from ..unit import Q_, fast_convert
 from .base import PamilaDeviceBase, PamilaDeviceBaseSpec, PamilaOphydDeviceBase
 from .specs import PamilaDeviceActionSpec, UnitConvSpec
 
@@ -197,7 +197,7 @@ def _set_and_wait_for_fixed_duration(
         odev.put(values_w_unit, **kwargs)
         status.set_finished()
 
-    timer = threading.Timer(dt.to("s").m, put_and_complete)
+    timer = threading.Timer(fast_convert(dt, "s").m, put_and_complete)
     timer.start()
 
     return status
@@ -210,10 +210,10 @@ def _set_and_wait_until_SP_RB_diff_small(
     if opts.timeout is None:
         timeout = None
     else:
-        timeout = opts.timeout.to("s").m
+        timeout = fast_convert(opts.timeout, "s").m
 
-    poll_time = opts.poll_time.to("s").m
-    settle_time = opts.settle_time.to("s").m
+    poll_time = fast_convert(opts.poll_time, "s").m
+    settle_time = fast_convert(opts.settle_time, "s").m
 
     match values_w_unit:
         case list():

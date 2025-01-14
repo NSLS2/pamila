@@ -16,7 +16,7 @@ from . import (
     _wait_for_connection,
 )
 from ..machine_modes import get_machine_mode
-from ..unit import Q_
+from ..unit import Q_, fast_convert
 from ..utils import AttributeAccess as AA
 from ..utils import ChainedPropertyFetcher, ChainedPropertyPusher
 from ..utils import KeyIndexAccess as KIA
@@ -401,7 +401,7 @@ class MiddleLayerVariableTree(MiddleLayerObject):
         dt = None
         for state in flat_set_states:
             if timeout is not None:
-                dt = timeout.to("s").m - (ttime.perf_counter() - t0)
+                dt = fast_convert(timeout, "s").m - (ttime.perf_counter() - t0)
                 if dt < 0.0:
                     raise TimeoutError
             state.wait(timeout=dt)

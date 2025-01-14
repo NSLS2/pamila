@@ -3,7 +3,7 @@ from typing import Dict, Type
 import numpy as np
 from ophyd import Component as Cpt
 
-from .unit import Q_, ureg
+from .unit import Q_, _get_canonical_name, fast_create_Q
 
 
 def json_serialize_numpy_array(value):
@@ -21,7 +21,7 @@ def json_serialize_pint_quantity(value):
     return {
         "__pint_quantity__": True,
         "magnitude": value.magnitude,
-        "units": str(value.units),
+        "units": _get_canonical_name(str(value.units)),
     }
 
 
@@ -29,7 +29,7 @@ def json_deserialize_pint_quantity(value):
     if isinstance(value, dict) and value.get("__pint_quantity__"):
         magnitude = value["magnitude"]
         units = value["units"]
-        return magnitude * ureg(units)
+        return fast_create_Q(magnitude, units)
     elif isinstance(value, str):
         return Q_(value)
     else:

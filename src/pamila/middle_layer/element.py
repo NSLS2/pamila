@@ -12,6 +12,7 @@ from . import (
     get_spos,
     sort_by_spos,
 )
+from ..unit import fast_convert
 from ..utils import KeyValueTagList, SPositionList
 
 
@@ -89,12 +90,14 @@ class Element:
         assert (n_ds is None) or (n_ds >= 1)
         assert (n_us is None) or (n_us >= 1)
 
-        s_self = self.get_spos(loc="c").to("m").m
+        s_self = fast_convert(self.get_spos(loc="c"), "meter").m
 
         sorted_elements = sort_by_spos(
             elements_to_select_from, loc="c", exclude_nan=True
         )
-        s_sorted = [elem.get_spos(loc="c").to("m").m for elem in sorted_elements]
+        s_sorted = [
+            fast_convert(elem.get_spos(loc="c"), "meter").m for elem in sorted_elements
+        ]
 
         if self in sorted_elements:
             sep_ind = sorted_elements.index(self)

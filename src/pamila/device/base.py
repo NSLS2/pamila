@@ -17,7 +17,7 @@ from ..signal import (
     InternalPamilaSignalRO,
     UserPamilaSignal,
 )
-from ..unit import Unit
+from ..unit import fast_convert, fast_create_Q
 from .specs import PamilaDeviceActionSpec, UnitConvSpec
 
 PAMILA_SIGNAL_CLASS_MAP = dict(
@@ -93,7 +93,11 @@ class PamilaOphydDeviceBase(Device):
         iterable_get_output: bool = False,
         **kwargs,
     ):
+        _internal_conv_enabled = kwargs.pop("_internal_conv_enabled", True)
+
         super().__init__(prefix=prefix, name=name, **kwargs)
+
+        self._internal_conv_enabled = _internal_conv_enabled
 
         self._input_psig_names = input_psig_names
         self._output_psig_names = output_psig_names
@@ -102,6 +106,7 @@ class PamilaOphydDeviceBase(Device):
         self._combined_output_psig_names = {}
 
         self._unitconvs = unitconvs
+        self._internal_conv_facs = dict(get={}, put={})
 
         self._input_psigs = {}
         self._output_psigs = {}
@@ -152,28 +157,47 @@ class PamilaOphydDeviceBase(Device):
         else:
             return values
 
-    def _convert_values(self, values_w_unit: List, action_type: str) -> List:
+    def _convert_values(
+        self, values_w_unit: List, action_type: str, internal_conv: bool = False
+    ) -> List:
 
         uc = self._unitconvs[action_type]
         assert isinstance(uc, UnitConvSpec)
 
-        assert len(values_w_unit) == len(uc.src_units)
-        values_wo_unit = [
-            v.to(src_unit).m for v, src_unit in zip(values_w_unit, uc.src_units)
-        ]
+        if internal_conv and self._internal_conv_enabled:
+            conv_facs_d = self._internal_conv_facs[action_type]
+            input_signature = tuple(str(v.units) for v in values_w_unit)
+            if input_signature not in conv_facs_d:
+                conv_facs_d[input_signature] = [
+                    fast_convert(fast_create_Q(1.0, str(v.units)), src_unit_str).m
+                    for v, src_unit_str in zip(values_w_unit, uc.src_units)
+                ]
+
+            conv_facs = conv_facs_d[input_signature]
+            assert len(values_w_unit) == len(conv_facs)
+            if set(conv_facs) == {1.0}:  # i.e., identity; no need for conversion
+                values_wo_unit = [v.m for v in values_w_unit]
+            else:
+                values_wo_unit = [v.m * fac for v, fac in zip(values_w_unit, conv_facs)]
+        else:
+            assert len(values_w_unit) == len(uc.src_units)
+            values_wo_unit = [
+                fast_convert(v, src_unit_str).m
+                for v, src_unit_str in zip(values_w_unit, uc.src_units)
+            ]
 
         outputs_wo_unit = uc.func(*values_wo_unit)
 
         try:
             len(outputs_wo_unit)
         except TypeError:
-            output = outputs_wo_unit * Unit(uc.dst_units[0])
+            output = fast_create_Q(outputs_wo_unit, uc.dst_units[0])
             return [output]
 
         assert len(outputs_wo_unit) == len(uc.dst_units)
         return [
-            v_wo_unit * Unit(dst_unit)
-            for v_wo_unit, dst_unit in zip(outputs_wo_unit, uc.dst_units)
+            fast_create_Q(v_wo_unit, dst_unit_str)
+            for v_wo_unit, dst_unit_str in zip(outputs_wo_unit, uc.dst_units)
         ]
 
     def convert_values(
@@ -199,7 +223,7 @@ class PamilaOphydDeviceBase(Device):
 
         LoLv_vals = [psig.get() for psig in self._combined_input_psigs["get"]]
 
-        HiLv_vals = self._convert_values(LoLv_vals, "get")
+        HiLv_vals = self._convert_values(LoLv_vals, "get", internal_conv=True)
         ts = ttime.time()
         for psig, v in zip(self._output_psigs["get"], HiLv_vals):
             psig.put(v, timestamp=ts)
@@ -221,7 +245,7 @@ class PamilaOphydDeviceBase(Device):
             res[f"{self.root.name}_{cpt_attr_name}"]["value"]
             for cpt_attr_name in self._combined_input_psig_names["get"]
         ]
-        HiLv_vals = self._convert_values(LoLv_vals, "get")
+        HiLv_vals = self._convert_values(LoLv_vals, "get", internal_conv=True)
 
         for cpt_attr_name, v in zip(self._combined_output_psig_names["get"], HiLv_vals):
             k = f"{self.root.name}_{cpt_attr_name}"

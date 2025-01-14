@@ -168,3 +168,6 @@ examples/*.pdf
 examples/*.ipynb
 examples/demo_generated/*
 examples/nb_gen/*.pdf
+
+speed_test/*.txt
+speed_test/*.pgz

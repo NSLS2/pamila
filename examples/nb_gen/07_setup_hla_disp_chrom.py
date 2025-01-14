@@ -179,3 +179,5 @@ pml.hla.get_hla_defaults()
 # you need to undo the special setup we applied, as we did in "06_hla_orbit.ipynb".
 # If you are starting a fresh run, this step is not necessary.
 pml.hla.disallow_machine_default_placeholder()
+
+print("Finished successfully.")

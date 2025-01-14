@@ -2084,6 +2084,7 @@ with open(model_folder / "design_props.json", "w") as f:
     json.dump(design_props_for_file, f, indent=2)
 
 # %% [markdown]
+
 # # Check if the created config files are loadable
 
 # %%

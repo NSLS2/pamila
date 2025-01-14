@@ -12,7 +12,7 @@ from typing import Dict, List, Literal
 import numpy as np
 from pydantic import BaseModel, Field
 
-from ..unit import Q_, ureg
+from ..unit import Q_, fast_convert, fast_create_Q
 from ..utils import MACHINE_DEFAULT, KeyValueTagList, KeyValueTagSearch, SPositionList
 
 
@@ -385,14 +385,48 @@ def _wait_for_connection(
     """
 
     if timeout is not None:
-        timeout = timeout.to("s").m
+        timeout = fast_convert(timeout, "s").m
 
-    t0 = ttime.perf_counter()
-    while timeout is None or (ttime.perf_counter() - t0) < timeout:
-        connected = all(sig.connected for sig in signals)
-        if connected and not any(pending_funcs.values()):
-            return
-        ttime.sleep(min((0.05, timeout / 10.0)))
+    if False:
+        t0 = ttime.perf_counter()
+        while timeout is None or (ttime.perf_counter() - t0) < timeout:
+            connected = all(sig.connected for sig in signals)
+            if connected and not any(pending_funcs.values()):
+                return
+            ttime.sleep(min((0.05, timeout / 10.0)))
+    else:
+        inds_to_keep = list(range(len(signals)))
+        t0 = ttime.perf_counter()
+        while timeout is None or (ttime.perf_counter() - t0) < timeout:
+            new_inds_to_keep = [i for i in inds_to_keep if not signals[i].connected]
+            if (new_inds_to_keep == []) and not any(pending_funcs.values()):
+                return
+
+            # For some reason, the PV access rights change callback does not
+            # get called. So, here this callback is manually being invoked.
+            # Otherwise, this signal never gets connected even if the associated
+            # PV object is connected.
+            for i in new_inds_to_keep:
+                sig = signals[i]
+                for attr_name in ["_read_pv", "_write_pv"]:
+                    pv = getattr(sig, attr_name, None)
+                    if pv and pv.connected:
+                        if not all([*sig._received_first_metadata.values()]):
+                            sig._pv_connected(pv.pvname, pv.connected, pv)
+                            if not all([*sig._received_first_metadata.values()]):
+                                _md = pv.get_all_metadata_blocking(timeout=5.0)  # 10)
+                                sig._initial_metadata_callback(pv.pvname, _md)
+                            assert all([*sig._received_first_metadata.values()])
+
+                        orig_read_access = sig.read_access
+                        orig_wirte_access = sig.write_access
+                        sig._pv_access_callback(sig.read_access, sig.write_access, pv)
+                        assert sig.read_access == orig_read_access
+                        assert sig.write_access == orig_wirte_access
+                        assert sig.connected
+
+            inds_to_keep = new_inds_to_keep
+            ttime.sleep(min((0.05, timeout / 10.0)))
 
     def get_name(mlo_name, sig):
         sig_name = f"{mlo_name}.{sig.dotted_name}"
@@ -431,7 +465,7 @@ def get_spos(s_list: SPositionList, loc: Literal["b", "e", "c"] = "c"):
         else:
             raise NotImplementedError("Multiple s-pos case not handled yet")
 
-    return spos * ureg.meter
+    return fast_create_Q(spos, "meter")
 
 
 def get_phys_length(s_list: SPositionList):
@@ -443,7 +477,7 @@ def get_phys_length(s_list: SPositionList):
         else:
             raise NotImplementedError("Multiple s-pos case not handled yet")
 
-    return L * ureg.meter
+    return fast_create_Q(L, "meter")
 
 
 def sort_by_spos(
@@ -453,7 +487,7 @@ def sort_by_spos(
 ):
 
     if isinstance(objs, list):
-        spos_list = [o.get_spos(loc=loc).to("m").m for o in objs]
+        spos_list = [fast_convert(o.get_spos(loc=loc), "meter").m for o in objs]
         if exclude_nan:
             sorted_objs = [
                 objs[i] for i in np.argsort(spos_list) if not np.isnan(spos_list[i])
@@ -462,7 +496,9 @@ def sort_by_spos(
             sorted_objs = [objs[i] for i in np.argsort(spos_list)]
     elif isinstance(objs, dict):
         keys = list(objs)
-        spos_list = np.array([o.get_spos(loc=loc).to("m").m for o in objs.values()])
+        spos_list = np.array(
+            [fast_convert(o.get_spos(loc=loc), "meter").m for o in objs.values()]
+        )
         if exclude_nan:
             sorted_objs = [
                 objs[keys[i]]

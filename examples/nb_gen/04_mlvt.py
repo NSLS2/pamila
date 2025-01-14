@@ -264,5 +264,5 @@ print(f"set_and_wait took {time.perf_counter()-t0:.3f} [s]")
 # MLVT objects are serializable.
 import pickle
 
-pickle.loads(pickle.dumps(mlvt_RB))
-pickle.loads(pickle.dumps(mlvt_SP))
+print(pickle.loads(pickle.dumps(mlvt_RB)))
+print(pickle.loads(pickle.dumps(mlvt_SP)))

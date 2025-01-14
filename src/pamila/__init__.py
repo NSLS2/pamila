@@ -11,6 +11,11 @@ import getpass
 
 USERNAME = getpass.getuser()
 
+# isort: off
+from . import ophyd_shim
+
+# isort: on
+
 from . import serialization, tiled, unit, utils
 from .unit import Q_, Unit
 

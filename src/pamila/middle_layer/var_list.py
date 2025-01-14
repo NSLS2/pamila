@@ -9,6 +9,7 @@ import threading
 import time as ttime  # as defined in ophyd.device
 from typing import List
 
+import numpy as np
 from ophyd.utils import ReadOnlyError
 from pydantic import field_serializer, field_validator
 
@@ -20,7 +21,7 @@ from . import (
     _wait_for_connection,
 )
 from ..machine_modes import get_machine_mode
-from ..unit import Q_, DimensionalityError
+from ..unit import Q_, DimensionalityError, fast_convert
 from .variable import MiddleLayerVariable, MiddleLayerVariableRO
 
 
@@ -91,6 +92,7 @@ async def mlv_paralle_set(
 
 class MiddleLayerVariableListSpec(MiddleLayerObjectSpec):
     mlvs: List[MiddleLayerVariable]
+    parallel_get_enabled: bool = True
     ignore_put_collision: bool = False
 
     model_config = {"arbitrary_types_allowed": True, "extra": "forbid"}
@@ -102,6 +104,7 @@ class MiddleLayerVariableListSpec(MiddleLayerObjectSpec):
 
 class MiddleLayerVariableListROSpec(MiddleLayerObjectSpec):
     mlvs: List[MiddleLayerVariableRO]
+    parallel_get_enabled: bool = True
 
     model_config = {"arbitrary_types_allowed": True, "extra": "forbid"}
 
@@ -120,10 +123,13 @@ class MiddleLayerVariableListBase(MiddleLayerObject):
 
         assert spec.mlvs != []
 
+        self._parallel_get_enabled = spec.parallel_get_enabled
+
         machine_names = []
         for mlv in spec.mlvs:
             machine_names.append(mlv.machine_name)
         self._all_mlvs = spec.mlvs
+        self._all_read_pvs = None
 
         machine_names = list(set(machine_names))
         match len(machine_names):
@@ -160,6 +166,57 @@ class MiddleLayerVariableListBase(MiddleLayerObject):
         self.__dict__.update(state)
 
         self._sigs_pend_funcs = {}
+
+    def enable_parallel_get(self):
+        self._parallel_get_enabled = True
+        self._update_PV_parallel_get_enabled_states()
+
+    def disable_parallel_get(self):
+        self._parallel_get_enabled = False
+        self._update_PV_parallel_get_enabled_states()
+
+    def _get_all_pvs(self):
+
+        if self._all_read_pvs is None:
+            pvlist = []
+            for mlv in self._all_mlvs:
+                all_sigs = mlv._get_sigs_pend_funcs(all_modes=True, all_signals=True)[0]
+                for sig in all_sigs:
+                    if hasattr(sig, "_read_pv"):
+                        pvlist.append(sig._read_pv)
+            self._all_read_pvs = pvlist
+
+        return self._all_read_pvs
+
+    def _get_enabled_psigs_pvs(self):
+        psig_list = []
+        pv_list = []
+        for mlv in self.get_enabled_mlvs():
+            all_sigs = mlv._get_sigs_pend_funcs(all_modes=True, all_signals=True)[0]
+            for sig in all_sigs:
+                if hasattr(sig, "_read_pv"):
+                    pv_list.append(sig._read_pv)
+                    psig_list.append(sig)
+
+        return psig_list, pv_list
+
+    def _update_PV_parallel_get_enabled_states(self):
+        for pv in self._get_all_pvs():
+            pv._parallel_get_enabled = self._parallel_get_enabled
+
+    def turn_off_PV_auto_monitors(self):
+        psig_list, pv_list = self._get_enabled_psigs_pvs()
+        assert len(psig_list) == len(pv_list)
+        for sig, pv in zip(psig_list, pv_list):
+            sig._auto_monitor = False
+            pv.auto_monitor = False
+
+    def turn_on_PV_auto_monitors(self):
+        psig_list, pv_list = self._get_enabled_psigs_pvs()
+        assert len(psig_list) == len(pv_list)
+        for sig, pv in zip(psig_list, pv_list):
+            sig._auto_monitor = True
+            pv.auto_monitor = True
 
     def _reinitialize_on_enabled_status_change(self):
 
@@ -297,9 +354,26 @@ class MiddleLayerVariableListBase(MiddleLayerObject):
         # t0 = ttime.perf_counter()
 
         if True:
+            enabled_mlvs = self.get_enabled_mlvs()
+            if self._parallel_get_enabled:
+                pvlist = []
+                for mlv in enabled_mlvs:
+                    pvlist.extend(
+                        [
+                            sig._read_pv
+                            for sig in mlv.get_signals()
+                            if hasattr(sig, "_read_pv")
+                        ]
+                    )
+                _, u_inds = np.unique([_pv.pvname for _pv in pvlist], return_index=True)
+                u_pvlist = [pv for i, pv in enumerate(pvlist) if i in u_inds]
+                for pv in u_pvlist:
+                    pv._initiate_PV_get_new_wo_wait()
+
             results = []
-            for mlv in self.get_enabled_mlvs():
+            for mlv in enabled_mlvs:
                 results.extend(mlv.get(return_iterable=True))
+
         elif False:  # Works in scripts, but not in Jupyter notebooks
             results = asyncio.run(mlv_paralle_get(self.get_enabled_mlvs()))
         else:
@@ -481,7 +555,7 @@ class MiddleLayerVariableList(MiddleLayerVariableListBase):
         dt = None
         for state in set_states:
             if timeout is not None:
-                dt = timeout.to("s").m - (ttime.perf_counter() - t0)
+                dt = fast_convert(timeout, "s").m - (ttime.perf_counter() - t0)
                 if dt < 0.0:
                     raise TimeoutError
             state.wait(timeout=dt)
