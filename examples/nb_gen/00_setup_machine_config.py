@@ -162,7 +162,7 @@ def _get_blank_elem_def(elem_defs, elem_name):
 
 pv_elem_maps = {}
 simpv_elem_maps = {}
-simpv_defs = []
+simpv_defs = {}
 elem_defs = {}
 
 # %% [markdown]
@@ -173,7 +173,7 @@ elem_defs = {}
 def process_slow_acq_bpm_definition(
     pv_elem_maps: Dict,
     simpv_elem_maps: Dict,
-    simpv_defs: List,
+    simpv_defs: Dict,
     elem_defs: Dict,
     at_elem_name: str,
     pml_elem_name: str,
@@ -247,12 +247,9 @@ def process_slow_acq_bpm_definition(
         simpv_elem_dict_RB["pvunit"] = "m"
         # simpv_elem_dict["info_to_check"] = info_to_check
 
-        simpv_defs.append(
-            dict(
-                pvclass="BPMSlowAcqSimPV",
-                pvsuffix=sim_pvsuffix,
-                args=[lattice_index, plane],
-            )
+        assert sim_pvsuffix not in simpv_defs
+        simpv_defs[sim_pvsuffix] = dict(
+            pvclass="BPMSlowAcqSimPV", args=[lattice_index, plane]
         )
 
         elem_def = _get_blank_elem_def(elem_defs, pml_elem_name)
@@ -382,7 +379,7 @@ for d in bpm_info_list:
 def process_corrector_definition(
     pv_elem_maps: Dict,
     simpv_elem_maps: Dict,
-    simpv_defs: List,
+    simpv_defs: Dict,
     elem_defs: Dict,
     at_elem_name: str,
     pml_elem_name: str,
@@ -478,17 +475,17 @@ def process_corrector_definition(
         simpv_elem_dict_RB["handle"] = "RB"
         simpv_elem_dict_RB["pvunit"] = "rad"
 
-        simpv_defs.append(
+        assert sim_RB_pvsuffix not in simpv_defs
+        simpv_defs[sim_RB_pvsuffix] = dict(
             dict(
                 pvclass="CorrectorSimPV",
-                pvsuffix=sim_RB_pvsuffix,
                 args=[lattice_index, plane],
             )
         )
-        simpv_defs.append(
+        assert sim_SP_pvsuffix not in simpv_defs
+        simpv_defs[sim_SP_pvsuffix] = dict(
             dict(
                 pvclass="CorrectorSimPV",
-                pvsuffix=sim_SP_pvsuffix,
                 args=[lattice_index, plane],
             )
         )
@@ -757,7 +754,7 @@ for d in cor_info_list:
 def process_quad_definition(
     pv_elem_maps: Dict,
     simpv_elem_maps: Dict,
-    simpv_defs: List,
+    simpv_defs: Dict,
     elem_defs: Dict,
     at_elem_name: str,
     pml_elem_name: str,
@@ -871,20 +868,10 @@ def process_quad_definition(
     simpv_elem_dict_SP["handle"] = "SP"
     simpv_elem_dict_SP["pvunit"] = "m^{-2}"
 
-    simpv_defs.append(
-        dict(
-            pvclass="QuadrupoleSimPV",
-            pvsuffix=sim_RB_pvsuffix,
-            args=[lattice_index],
-        )
-    )
-    simpv_defs.append(
-        dict(
-            pvclass="QuadrupoleSimPV",
-            pvsuffix=sim_SP_pvsuffix,
-            args=[lattice_index],
-        )
-    )
+    assert sim_RB_pvsuffix not in simpv_defs
+    simpv_defs[sim_RB_pvsuffix] = dict(pvclass="QuadrupoleSimPV", args=[lattice_index])
+    assert sim_SP_pvsuffix not in simpv_defs
+    simpv_defs[sim_SP_pvsuffix] = dict(pvclass="QuadrupoleSimPV", args=[lattice_index])
 
     elem_def = _get_blank_elem_def(elem_defs, pml_elem_name)
 
@@ -1144,7 +1131,7 @@ for d in quad_info_list:
 def process_sext_definition(
     pv_elem_maps: Dict,
     simpv_elem_maps: Dict,
-    simpv_defs: List,
+    simpv_defs: Dict,
     elem_defs: Dict,
     at_elem_name: str,
     pml_elem_name: str,
@@ -1258,12 +1245,11 @@ def process_sext_definition(
     simpv_elem_dict_SP["handle"] = "SP"
     simpv_elem_dict_SP["pvunit"] = "m^{-3}"
 
-    simpv_defs.append(
-        dict(pvclass="SextupoleSimPV", pvsuffix=sim_RB_pvsuffix, args=[lattice_index])
-    )
-    simpv_defs.append(
-        dict(pvclass="SextupoleSimPV", pvsuffix=sim_SP_pvsuffix, args=[lattice_index])
-    )
+    assert sim_RB_pvsuffix not in simpv_defs
+    simpv_defs[sim_RB_pvsuffix] = dict(pvclass="SextupoleSimPV", args=[lattice_index])
+
+    assert sim_SP_pvsuffix not in simpv_defs
+    simpv_defs[sim_SP_pvsuffix] = dict(pvclass="SextupoleSimPV", args=[lattice_index])
 
     elem_def = _get_blank_elem_def(elem_defs, pml_elem_name)
 
@@ -1532,7 +1518,7 @@ for d in sext_info_list:
 def process_rf_freq_definition(
     pv_elem_maps: Dict,
     simpv_elem_maps: Dict,
-    simpv_defs: List,
+    simpv_defs: Dict,
     elem_defs: Dict,
     pml_elem_name: str,
     RB_pvname: str,
@@ -1598,8 +1584,11 @@ def process_rf_freq_definition(
     simpv_elem_dict_SP["handle"] = "SP"
     simpv_elem_dict_SP["pvunit"] = "Hz"
 
-    simpv_defs.append(dict(pvclass="RfFreqSimPV", pvsuffix=sim_RB_pvsuffix))
-    simpv_defs.append(dict(pvclass="RfFreqSimPV", pvsuffix=sim_SP_pvsuffix))
+    assert sim_RB_pvsuffix not in simpv_defs
+    simpv_defs[sim_RB_pvsuffix] = dict(pvclass="RfFreqSimPV")
+
+    assert sim_SP_pvsuffix not in simpv_defs
+    simpv_defs[sim_SP_pvsuffix] = dict(pvclass="RfFreqSimPV")
 
     elem_def = _get_blank_elem_def(elem_defs, pml_elem_name)
 
@@ -1697,7 +1686,7 @@ process_rf_freq_definition(
 def process_dcct_definition(
     pv_elem_maps: Dict,
     simpv_elem_maps: Dict,
-    simpv_defs: List,
+    simpv_defs: Dict,
     elem_defs: Dict,
     pml_elem_name: str,
     RB_pvname: str,
@@ -1749,7 +1738,8 @@ def process_dcct_definition(
     simpv_elem_dict_RB["handle"] = "RB"
     simpv_elem_dict_RB["pvunit"] = "A"
 
-    simpv_defs.append(dict(pvclass="BeamCurrentSimPV", pvsuffix=sim_RB_pvsuffix))
+    assert sim_RB_pvsuffix not in simpv_defs
+    simpv_defs[sim_RB_pvsuffix] = dict(pvclass="BeamCurrentSimPV")
 
     elem_def = _get_blank_elem_def(elem_defs, pml_elem_name)
 
@@ -1808,7 +1798,7 @@ process_dcct_definition(
 def process_tune_diag_definition(
     pv_elem_maps: Dict,
     simpv_elem_maps: Dict,
-    simpv_defs: List,
+    simpv_defs: Dict,
     elem_defs: Dict,
     pml_elem_name: str,
     RB_pvname_d: Dict,
@@ -1865,9 +1855,8 @@ def process_tune_diag_definition(
         simpv_elem_dict_RB["handle"] = "RB"
         simpv_elem_dict_RB["pvunit"] = ""
 
-        simpv_defs.append(
-            dict(pvclass="TuneSimPV", pvsuffix=sim_RB_pvsuffix, args=[plane])
-        )
+        assert sim_RB_pvsuffix not in simpv_defs
+        simpv_defs[sim_RB_pvsuffix] = dict(pvclass="TuneSimPV", args=[plane])
 
         elem_def = _get_blank_elem_def(elem_defs, pml_elem_name)
 

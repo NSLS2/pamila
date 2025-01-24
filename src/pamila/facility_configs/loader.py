@@ -1118,12 +1118,9 @@ class MachineConfig:
         match self.sim_conf.package_name:
             case "pyat":
                 sim_pv_defs = {}
-                for d in self.sim_pv_defs["sim_pv_definitions"]:
-                    pvsuffix = d["pvsuffix"]
+                for pvsuffix, d in self.sim_pv_defs["sim_pv_definitions"].items():
                     assert pvsuffix not in sim_pv_defs
-                    sim_pv_defs[pvsuffix] = SimulatorPvDefinition(
-                        **{k: v for k, v in d.items() if k != "pvsuffix"}
-                    )
+                    sim_pv_defs[pvsuffix] = SimulatorPvDefinition(**d)
                 sim_conf_d = self.sim_conf.model_dump()
                 sim_conf_d["sim_pv_defs"] = sim_pv_defs
                 self.sim_itf_spec = PyATInterfaceSpec(**sim_conf_d)

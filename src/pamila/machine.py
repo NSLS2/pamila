@@ -280,7 +280,7 @@ class Machine:
 
     def add_to_simpv_definitions(self, new_entry: Dict):
         copy = json.loads(json.dumps(new_entry))
-        self._conf.sim_pv_defs["sim_pv_definitions"].append(copy)
+        self._conf.sim_pv_defs["sim_pv_definitions"].update(copy)
         self._conf._add_sim_pv_def(copy)
 
     def add_to_pv_elem_maps(self, pvname: str, new_entry: Dict):
