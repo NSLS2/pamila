@@ -1,5 +1,21 @@
 # Particle Accelerator MIddle LAyer (PAMILA) - Python middle layer package for control of particle accelerators, compatible with bluesky / ophyd / tiled
 
+## How to set up (TL;DR version)
+
+Assuming you have the `git` and `conda` (or `mamba`) commands, run the installation bash script:
+
+```
+$ git clone https://github.com/python-accelerator-middle-layer/pamila.git
+$ cd pamila
+$ bash install.sh
+```
+
+This will perform the steps "Environment setup", "How to install `pamila` with `poetry`", and "Generate and run example Jupyter notebooks" below.
+
+You will be prompted to enter the new conda environment name, your facility name (e.g., `nsls2`), and whether to use `conda` or `mamba`.
+
+If no error occurs, you are ready to start using PAMIAL once you activate the newly created envirnoment.
+
 ## Environment setup
 
 `$ conda create -n pamila python=3.11 poetry numpy=1 scipy pint pyepics caproto h5py matplotlib=3.8 ipython jupyter ipympl jupytext pytest black pre-commit pydantic=2.9 -c conda-forge`
@@ -40,7 +56,7 @@ Install other dependent packages with `pip`:
 (pamila) $ pip install tiled[all]
 (pamila) $ pip install accelerator-toolbox
 ```
-# How to install `pamila` with `poetry`
+## How to install `pamila` with `poetry`
 
 ```
 (pamila) $ git clone https://github.com/python-accelerator-middle-layer/pamila.git
@@ -59,7 +75,7 @@ commands instead:
 (pamila) $ poetry build
 (pamila) $ pip install dist/pamila-0.1.0-py3-none-any.whl --force-reinstall --no-deps
 ```
-# Generate and run example Jupyter notebooks
+## Generate and run example Jupyter notebooks
 
 Run the following commands to generate example notebooks:
 ```
@@ -69,7 +85,7 @@ Run the following commands to generate example notebooks:
 
 Try running the notebooks in the order of the file names, starting with "00".
 
-# `pre-commit` setup
+## `pre-commit` setup
 
 Before `pre-commit` starts automatically formats all the files included in the
 git repository, it needs to be set up as follows:
