@@ -1128,6 +1128,17 @@ for d in quad_info_list:
 
 
 # %%
+def _assert_dict_identity_except_elem_names(existing_d, new_d):
+
+    existing_copy = json.loads(json.dumps(existing_d))
+    new_copy = json.loads(json.dumps(new_d))
+
+    del existing_copy["elem_names"]
+    del new_copy["elem_names"]
+
+    assert json.dumps(existing_copy) == json.dumps(new_copy)
+
+
 def process_sext_definition(
     pv_elem_maps: Dict,
     simpv_elem_maps: Dict,
@@ -1196,8 +1207,8 @@ def process_sext_definition(
         for repr in ["I", "K2L", "K2"]
     }
 
-    assert RB_pvname not in pv_elem_maps
-    assert SP_pvname not in pv_elem_maps
+    # assert RB_pvname not in pv_elem_maps
+    # assert SP_pvname not in pv_elem_maps
 
     assert sim_RB_pvsuffix not in simpv_elem_maps
     assert sim_SP_pvsuffix not in simpv_elem_maps
@@ -1311,9 +1322,37 @@ def process_sext_definition(
     for spec_name, spec in conv_func_specs.items():
         elem_def.func_specs[spec_name] = FunctionSpec(**spec)
 
-    pv_elem_maps[RB_pvname] = pv_elem_dict_RB
+    # pv_elem_maps[RB_pvname] = pv_elem_dict_RB
+    if RB_pvname not in pv_elem_maps:
+        pv_elem_maps[RB_pvname] = pv_elem_dict_RB
+    else:
+        _assert_dict_identity_except_elem_names(
+            pv_elem_maps[RB_pvname], pv_elem_dict_RB
+        )
+        assert all(
+            [
+                _name not in pv_elem_maps[RB_pvname]["elem_names"]
+                for _name in pv_elem_dict_RB["elem_names"]
+            ]
+        )
+        pv_elem_maps[RB_pvname]["elem_names"].extend(pv_elem_dict_RB["elem_names"])
+
+    # if pv_elem_dict_SP is not None:
+    #     pv_elem_maps[SP_pvname] = pv_elem_dict_SP
     if pv_elem_dict_SP is not None:
-        pv_elem_maps[SP_pvname] = pv_elem_dict_SP
+        if SP_pvname not in pv_elem_maps:
+            pv_elem_maps[SP_pvname] = pv_elem_dict_SP
+        else:
+            _assert_dict_identity_except_elem_names(
+                pv_elem_maps[SP_pvname], pv_elem_dict_SP
+            )
+            assert all(
+                [
+                    _name not in pv_elem_maps[SP_pvname]["elem_names"]
+                    for _name in pv_elem_dict_SP["elem_names"]
+                ]
+            )
+            pv_elem_maps[SP_pvname]["elem_names"].extend(pv_elem_dict_SP["elem_names"])
 
     simpv_elem_maps[sim_RB_pvsuffix] = simpv_elem_dict_RB
     if simpv_elem_dict_SP is not None:
