@@ -7,7 +7,7 @@ Assuming you have the `git` and `conda` (or `mamba`) commands, run the installat
 ```
 $ git clone https://github.com/python-accelerator-middle-layer/pamila.git
 $ cd pamila
-$ bash install.sh
+$ bash install.bash
 ```
 
 This will perform the steps "Environment setup", "How to install `pamila` with `poetry`", and "Generate and run example Jupyter notebooks" below.
