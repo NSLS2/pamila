@@ -6,10 +6,26 @@ authors = ["Yoshiteru Hidaka <yhidaka@bnl.gov>"]
 maintainers = ["Yoshiteru Hidaka <yhidaka@bnl.gov>"]
 license = "BSD-3-Clause"
 readme = "README.md"
-repository = "https://github.com/python-accelerator-middle-layer/pamila"
+repository = "https://github.com/NSLS2/pamila"
 
 [tool.poetry.dependencies]
 python = ">=3.11"
+numpy = "^1.0"
+scipy = "^1.0"
+pint = "^0.0"
+pyepics = "^3.0"
+caproto = "^1.0"
+h5py = "^3.0"
+matplotlib = ">=3.8"
+ipython = "^3.0"
+jupyter = "*"
+ipympl = "^0.0"
+jupytext = "^1.0"
+pydantic = "2.9"
+ophyd = "^1.0"
+bluesky = ">=1.13"
+tiled = {extras = ["all"], version = "^0.0"}
+accelerator-toolbox = "^0.0"
 
 [build-system]
 requires = ["poetry-core"]
